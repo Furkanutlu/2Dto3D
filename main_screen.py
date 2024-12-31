@@ -57,7 +57,7 @@ class MainScreen(QWidget):
             {"icon": "Images/cursor.png", "tooltip": "Cursor"},
             {"icon": "Images/circle-of-two-clockwise-arrows-rotation.png", "tooltip": "Rotate"},
             {"icon": "Images/expand-arrows.png", "tooltip": "Move"},
-            {"icon": "Images/zoom-in.png", "tooltip": "Resize"},  # "Zoom" butonunu geri ekledik
+            {"icon": "Images/resize.png", "tooltip": "resize"},  # "resize" butonunu geri ekledik
             {"icon": "Images/transparency.png", "tooltip": "Transparency"},  # Yeni Transparency butonu
             {"icon": "Images/color-wheel.png", "tooltip": "Background Color"},
             {"icon": "Images/scissors.png", "tooltip": "Cut"},
@@ -99,7 +99,7 @@ class MainScreen(QWidget):
                         default_icon = QIcon.fromTheme("object-rotate-right")
                     elif tooltip == "Move":
                         default_icon = QIcon.fromTheme("transform-move")
-                    elif tooltip == "Zoom":
+                    elif tooltip == "resize":
                         default_icon = QIcon.fromTheme("transform-scale")  # Ölçeklendirme için uygun bir tema ikonu
                     elif tooltip == "Transparency":
                         default_icon = QIcon.fromTheme("view-transparency")  # Transparency için uygun bir tema ikonu
@@ -118,7 +118,7 @@ class MainScreen(QWidget):
                     button.setIcon(default_icon)
                 button.setToolTip(tooltip)
                 button.setStyleSheet(self.inactive_style)
-                if tooltip in ["Cursor", "Rotate", "Move", "Zoom", "Cut", "Transparency"]:
+                if tooltip in ["Cursor", "Rotate", "Move", "resize", "Cut", "Transparency"]:
                     button.clicked.connect(lambda checked, tool=tooltip: self.activate_tool(tool))
                 elif tooltip == "Background Color":
                     button.clicked.connect(self.cube_widget.set_background_color)
@@ -142,7 +142,7 @@ class MainScreen(QWidget):
     def activate_tool(self, tool):
         # Update button styles
         for ttip, btn in self.tool_buttons.items():
-            if ttip in ["Cursor", "Rotate", "Move", "Zoom", "Cut", "Transparency"]:
+            if ttip in ["Cursor", "Rotate", "Move", "resize", "Cut", "Transparency"]:
                 if ttip == tool:
                     btn.setStyleSheet(self.active_style)
                 else:
@@ -155,8 +155,8 @@ class MainScreen(QWidget):
             self.cube_widget.set_mode("rotate")
         elif tool == "Move":
             self.cube_widget.set_mode("move")
-        elif tool == "Zoom":
-            self.cube_widget.set_mode("zoom")  # "Zoom" modunu ayarla
+        elif tool == "resize":
+            self.cube_widget.set_mode("resize")  # "resize" modunu ayarla
         elif tool == "Cut":
             self.cube_widget.set_mode("cut")
         elif tool == "Transparency":

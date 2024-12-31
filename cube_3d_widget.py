@@ -359,7 +359,7 @@ class Cube3DWidget(QGLWidget):
                     else:
                         self.selected_object["x_translation"] += delta.x() * 0.01
                         self.selected_object["y_translation"] -= delta.y() * 0.01
-                elif self.mode == "zoom":
+                elif self.mode == "resize":
                     # Handle object scaling
                     scale_change = 1 + (delta.y() * 0.01)  # Scale factor based on vertical mouse movement
                     new_scale = self.selected_object.get("scale", 1.0) * scale_change

@@ -6,7 +6,7 @@ from main_screen import MainScreen
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("3D Görüntüleme (QStackedWidget)")
+        self.setWindowTitle("3D Görüntüleme")
         self.stack = QStackedWidget()
         self.setCentralWidget(self.stack)
         self.entry_screen = EntryScreen(self)
