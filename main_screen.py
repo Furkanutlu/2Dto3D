@@ -20,6 +20,7 @@ class MainScreen(QWidget):
         super().__init__()
         self.main_window = main_window
         self.cube_widget = cube_widget
+        self.current_tool = None  # Track the currently active tool
 
         self.active_style = """
             QToolButton {
@@ -119,6 +120,7 @@ class MainScreen(QWidget):
                 button.setToolTip(tooltip)
                 button.setStyleSheet(self.inactive_style)
                 if tooltip in ["Cursor", "Rotate", "Move", "resize", "Cut", "Transparency"]:
+                    # Use a lambda with default argument to capture current tooltip
                     button.clicked.connect(lambda checked, tool=tooltip: self.activate_tool(tool))
                 elif tooltip == "Background Color":
                     button.clicked.connect(self.cube_widget.set_background_color)
@@ -140,27 +142,37 @@ class MainScreen(QWidget):
         self.setLayout(main_layout)
 
     def activate_tool(self, tool):
+        """
+        Activate or deactivate a tool based on its current state.
+        """
+        if self.current_tool == tool:
+            # Deactivate the tool
+            self.current_tool = None
+            self.cube_widget.set_mode(None)  # Reset to default mode (Cursor)
+        else:
+            # Activate the new tool
+            self.current_tool = tool
+            # Set the transformation mode
+            if tool == "Cursor":
+                self.cube_widget.set_mode(None)
+            elif tool == "Rotate":
+                self.cube_widget.set_mode("rotate")
+            elif tool == "Move":
+                self.cube_widget.set_mode("move")
+            elif tool == "resize":
+                self.cube_widget.set_mode("resize")  # "resize" modunu ayarla
+            elif tool == "Cut":
+                self.cube_widget.set_mode("cut")
+            elif tool == "Transparency":
+                self.cube_widget.set_mode("transparency")  # Yeni "transparency" modunu ayarla
+
         # Update button styles
         for ttip, btn in self.tool_buttons.items():
             if ttip in ["Cursor", "Rotate", "Move", "resize", "Cut", "Transparency"]:
-                if ttip == tool:
+                if ttip == self.current_tool:
                     btn.setStyleSheet(self.active_style)
                 else:
                     btn.setStyleSheet(self.inactive_style)
-
-        # Set the transformation mode
-        if tool == "Cursor":
-            self.cube_widget.set_mode(None)
-        elif tool == "Rotate":
-            self.cube_widget.set_mode("rotate")
-        elif tool == "Move":
-            self.cube_widget.set_mode("move")
-        elif tool == "resize":
-            self.cube_widget.set_mode("resize")  # "resize" modunu ayarla
-        elif tool == "Cut":
-            self.cube_widget.set_mode("cut")
-        elif tool == "Transparency":
-            self.cube_widget.set_mode("transparency")  # Yeni "transparency" modunu ayarla
 
     def add_object(self):
         """
@@ -174,3 +186,4 @@ class MainScreen(QWidget):
             elif selected_type == "Load OBJ" and obj_file:
                 self.cube_widget.load_obj(obj_file)
             self.main_window.go_main_screen()
+
