@@ -1,0 +1,22 @@
+# Ev Modeli Materyalleri
+
+newmtl Ground
+Ka 0.2 0.2 0.2  # Ortam ışığı
+Kd 0.4 0.8 0.4  # Dağınık renk (yeşil)
+Ks 0.1 0.1 0.1  # Yansıma
+d 1.0            # Saydamlık
+illum 2          # Aydınlatma modeli
+
+newmtl Wall
+Ka 0.3 0.3 0.3
+Kd 0.8 0.6 0.4  # Dağınık renk (kahverengi)
+Ks 0.2 0.2 0.2
+d 1.0
+illum 2
+
+newmtl Roof
+Ka 0.2 0.2 0.2
+Kd 0.6 0.1 0.1  # Dağınık renk (kırmızı)
+Ks 0.3 0.3 0.3
+d 1.0
+illum 2

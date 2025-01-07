@@ -7,6 +7,8 @@ import os
 import numpy as np
 import open3d as o3d
 import cv2
+from skimage import measure
+from skimage.measure import marching_cubes
 
 class EntryScreen(QWidget):
     def __init__(self, main_window):
@@ -164,7 +166,7 @@ class ModelGenerationWorker(QThread):
     progress_signal = pyqtSignal(int)
     finished_signal = pyqtSignal(str)
 
-    def __init__(self, slice_folder, output_path, scale_factor=0.1, z_increment=0.5, threshold=100, resolution=(256, 256)):
+    def __init__(self, slice_folder, output_path, scale_factor=0.001, z_increment=0.5, threshold=150, resolution=(16, 16)):
         super().__init__()
         self.slice_folder = slice_folder
         self.output_path = output_path
@@ -178,11 +180,11 @@ class ModelGenerationWorker(QThread):
             slice_files = sorted(os.listdir(self.slice_folder))
             print(f"Tespit edilen dilimler: {slice_files}")
 
-            point_cloud = []
-            total_steps = len(slice_files) + 2  # Resim yükleme + normaller + meshing
+            slices = []
+            total_steps = len(slice_files) + 1  # Resim yükleme + marching cubes
             step = 0
 
-            for i, slice_file in enumerate(slice_files):
+            for slice_file in slice_files:
                 img_path = os.path.join(self.slice_folder, slice_file)
                 print(f"Dilim işleniyor: {img_path}")
 
@@ -192,44 +194,30 @@ class ModelGenerationWorker(QThread):
                     continue
 
                 img = cv2.resize(img, self.resolution)  # Çözünürlüğü artır
-                z = i * self.z_increment
-
-                x, y = np.where(img > self.threshold)  # Siyah olmayan pikselleri filtrele
-                z_coords = np.full(x.shape, z)
-                points = np.stack((x, y, z_coords), axis=-1) * self.scale_factor  # Ölçek faktörü uygulanıyor
-                point_cloud.append(points)
+                slices.append(img)
 
                 step += 1
                 progress = int(step / total_steps * 100)
                 self.progress_signal.emit(progress)
 
-            point_cloud = np.vstack(point_cloud)
-            print(f"Nokta bulutu oluşturuldu: {point_cloud.shape[0]} nokta")
+            # Hacimsel veri oluştur ve normalize et
+            volume = np.stack(slices, axis=-1) / 255.0  # 0-1 aralığına normalize et
 
-            pcd = o3d.geometry.PointCloud()
-            pcd.points = o3d.utility.Vector3dVector(point_cloud)
-            pcd.estimate_normals(
-                search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=5.0, max_nn=30)
-            )
+            # Marching Cubes algoritmasını uygula
+            verts, faces, normals, values = measure.marching_cubes(volume, level=self.threshold / 255.0)
 
-            print("Poisson Reconstruction başlıyor...")
-            mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(
-                pcd, depth=8
-            )[0]
-            print("Poisson Reconstruction tamamlandı.")
+            # OBJ dosyasına yaz
+            with open(self.output_path, "w") as f:
+                for v in verts:
+                    f.write(f"v {v[0] * self.scale_factor} {v[1] * self.scale_factor} {v[2] * self.z_increment}\n")
+                for face in faces:
+                    f.write(f"f {face[0] + 1} {face[1] + 1} {face[2] + 1}\n")
 
-            simplified_mesh = mesh.simplify_quadric_decimation(1000)  # Daha fazla üçgen için artırılabilir
-            print(f"Basitleştirme tamamlandı. Üçgen sayısı: {len(simplified_mesh.triangles)}")
-
-            print(f"Basitleştirilmiş OBJ dosyası kaydediliyor: {self.output_path}")
-            o3d.io.write_triangle_mesh(self.output_path, simplified_mesh)
-            print("Basitleştirilmiş OBJ dosyası başarıyla kaydedildi.")
-            step += 1
-            self.progress_signal.emit(int(step / total_steps * 100))
+            print(f"OBJ dosyası başarıyla kaydedildi: {self.output_path}")
+            self.progress_signal.emit(100)
             self.finished_signal.emit(self.output_path)
-
-
 
         except Exception as e:
             print(f"HATA: {e}")
             self.finished_signal.emit("")  # Hata durumunda boş sinyal gönder
+
