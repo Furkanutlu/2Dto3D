@@ -61,12 +61,12 @@ class MainScreen(QWidget):
             {"icon": "Images/resize.png", "tooltip": "resize"},  # "resize" butonunu geri ekledik
             {"icon": "Images/transparency.png", "tooltip": "Transparency"},  # Yeni Transparency butonu
             {"icon": "Images/color-wheel.png", "tooltip": "Background Color"},
-            {"icon": "Images/scissors.png", "tooltip": "Cut"},  # Cut button
+            {"icon": "Images/scissors.png", "tooltip": "Cut"},
             {"icon": "Images/delete.png", "tooltip": "Objeyi Sil"},  # Delete button
             {"icon": "Images/back.png", "tooltip": "Undo"},
             {"icon": "Images/redo-arrow.png", "tooltip": "Redo"},
             {"icon": "Images/add-object.png", "tooltip": "Add Object"},  # Add Object button
-            {"icon": "Images/home.png", "tooltip": "Giriş Ekranına Dön"}  # Home button
+            {"icon": "Images/home.png", "tooltip": "Giriş Ekranına Dön"}
         ]
 
         for item in icons:
@@ -162,9 +162,9 @@ class MainScreen(QWidget):
             elif tool == "resize":
                 self.cube_widget.set_mode("resize")  # "resize" modunu ayarla
             elif tool == "Cut":
-                self.cube_widget.set_mode("cut")  # Kesme modunu ayarla
+                self.cube_widget.set_mode("cut")
             elif tool == "Transparency":
-                self.cube_widget.set_mode("transparency")  # Transparency modunu ayarla
+                self.cube_widget.set_mode("transparency")  # Yeni "transparency" modunu ayarla
 
         # Update button styles
         for ttip, btn in self.tool_buttons.items():
