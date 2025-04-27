@@ -175,15 +175,11 @@ class MainScreen(QWidget):
                     btn.setStyleSheet(self.inactive_style)
 
     def add_object(self):
-        """
-        Open the AddObjectDialog to allow users to add a Cube or load an OBJ file.
-        """
         dialog = AddObjectDialog(self)
         if dialog.exec_() == QDialog.Accepted:
-            selected_type, obj_file = dialog.get_selection()
-            if selected_type == "Cube":
-                self.cube_widget.add_cube()
-            elif selected_type == "Load OBJ" and obj_file:
+            _, obj_file = dialog.get_selection()
+            if obj_file:
                 self.cube_widget.load_obj(obj_file)
-            self.main_window.go_main_screen()
+                self.main_window.go_main_screen()
+
 

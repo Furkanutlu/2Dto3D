@@ -15,44 +15,41 @@ class EntryScreen(QWidget):
     def __init__(self, main_window):
         super().__init__()
         self.main_window = main_window
+
         layout = QVBoxLayout()
         layout.setAlignment(Qt.AlignCenter)
+
         font = QFont("Arial", 14, QFont.Bold)
         icon_size = 64
-        self.cube_button = QPushButton("Küp Göster")
-        self.cube_button.setFont(font)
-        self.cube_button.setIconSize(QSize(icon_size, icon_size))
-        self.cube_button.setIcon(QIcon("Icons/cube.png"))
-        self.cube_button.clicked.connect(self.show_cube)
+
         self.upload_button = QPushButton("OBJ Yükle")
         self.upload_button.setFont(font)
         self.upload_button.setIconSize(QSize(icon_size, icon_size))
         self.upload_button.setIcon(QIcon("Icons/upload.png"))
         self.upload_button.clicked.connect(self.upload_obj)
+
         self.create_obj_button = QPushButton("Obje Oluştur")
         self.create_obj_button.setFont(font)
         self.create_obj_button.setIconSize(QSize(icon_size, icon_size))
         self.create_obj_button.setIcon(QIcon("Icons/create.png"))
         self.create_obj_button.clicked.connect(self.create_obj)
+
         self.title_label = QLabel("3D Modelleme Uygulamasına Hoş Geldiniz")
         self.title_label.setFont(QFont("Arial", 18, QFont.Bold))
         self.title_label.setAlignment(Qt.AlignCenter)
+
         self.image_label = QLabel()
-        pixmap = QPixmap("Icons/main_image.png")
-        pixmap = pixmap.scaled(200, 200, Qt.KeepAspectRatio)
+        pixmap = QPixmap("Icons/main_image.png").scaled(200, 200, Qt.KeepAspectRatio)
         self.image_label.setPixmap(pixmap)
         self.image_label.setAlignment(Qt.AlignCenter)
+
         layout.addWidget(self.title_label)
         layout.addWidget(self.image_label)
-        layout.addWidget(self.cube_button)
         layout.addWidget(self.upload_button)
         layout.addWidget(self.create_obj_button)
         self.setLayout(layout)
 
-    def show_cube(self):
-        self.main_window.cube_widget.add_cube()
-        self.main_window.go_main_screen()
-
+    # --------------  kalan kod değişmedi --------------
     def upload_obj(self):
         file_name, _ = QFileDialog.getOpenFileName(self, "OBJ Dosyası Seç", "", "OBJ Files (*.obj)")
         if file_name:
