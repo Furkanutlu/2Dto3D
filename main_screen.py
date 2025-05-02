@@ -1,15 +1,10 @@
-from PyQt5.QtWidgets import (
-    QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QToolButton, QWidget,
-    QPushButton, QFileDialog, QColorDialog, QStackedWidget, QDialog, QLabel,
-    QComboBox, QDialogButtonBox
-)
+from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QToolButton, QWidget, QPushButton, QFileDialog, QColorDialog, QStackedWidget, QDialog, QLabel, QComboBox, QDialogButtonBox
 from PyQt5.QtGui import QIcon, QColor
 from PyQt5.QtCore import Qt, QPoint, QTimer, pyqtSignal
 from PyQt5.QtOpenGL import QGLWidget
 from OpenGL.GL import *
 from OpenGL.GLU import gluPerspective, gluNewQuadric, gluCylinder
 from add_object_dialog import AddObjectDialog
-
 import sys
 import numpy as np
 import os
@@ -20,8 +15,7 @@ class MainScreen(QWidget):
         super().__init__()
         self.main_window = main_window
         self.cube_widget = cube_widget
-        self.current_tool = None  # Track the currently active tool
-
+        self.current_tool = None
         self.active_style = """
             QToolButton {
                 background-color: #b0c4de;
@@ -46,39 +40,33 @@ class MainScreen(QWidget):
                 background-color: #e0e0e0;
             }
         """
-
         self.tool_buttons = {}
         self.tool_bar = QWidget()
         self.tool_bar_layout = QVBoxLayout(self.tool_bar)
         self.tool_bar.setFixedWidth(100)
         self.tool_bar.setStyleSheet("background-color: #f0f0f0; border-right: 1px solid #ccc;")
-
-        # Icons list
         icons = [
             {"icon": "Images/cursor.png", "tooltip": "Cursor"},
             {"icon": "Images/circle-of-two-clockwise-arrows-rotation.png", "tooltip": "Rotate"},
             {"icon": "Images/expand-arrows.png", "tooltip": "Move"},
-            {"icon": "Images/resize.png", "tooltip": "resize"},  # "resize" butonunu geri ekledik
-            {"icon": "Images/transparency.png", "tooltip": "Transparency"},  # Yeni Transparency butonu
+            {"icon": "Images/resize.png", "tooltip": "resize"},
+            {"icon": "Images/transparency.png", "tooltip": "Transparency"},
             {"icon": "Images/color-wheel.png", "tooltip": "Background Color"},
             {"icon": "Images/scissors.png", "tooltip": "Cut"},
-            {"icon": "Images/delete.png", "tooltip": "Objeyi Sil"},  # Delete button
+            {"icon": "Images/delete.png", "tooltip": "Objeyi Sil"},
             {"icon": "Images/back.png", "tooltip": "Undo"},
             {"icon": "Images/redo-arrow.png", "tooltip": "Redo"},
-            {"icon": "Images/add-object.png", "tooltip": "Add Object"},  # Add Object button
+            {"icon": "Images/add-object.png", "tooltip": "Add Object"},
             {"icon": "Images/home.png", "tooltip": "Giriş Ekranına Dön"}
         ]
-
         for item in icons:
             icon_path = item["icon"]
             tooltip = item["tooltip"]
             if tooltip in ["Undo", "Redo"]:
-                # Use RepeatButton for Undo and Redo
                 button = RepeatButton(initial_interval=500, min_interval=100, acceleration=0.8)
                 if os.path.exists(icon_path):
                     button.setIcon(QIcon(icon_path))
                 else:
-                    # Fallback to a default icon if not found
                     default_icon = QIcon.fromTheme("edit-undo") if tooltip == "Undo" else QIcon.fromTheme("edit-redo")
                     button.setIcon(default_icon)
                 button.setToolTip(tooltip)
@@ -88,12 +76,10 @@ class MainScreen(QWidget):
                 elif tooltip == "Redo":
                     button.repeat_signal.connect(self.cube_widget.redo)
             else:
-                # Use regular QToolButton for other tools
                 button = QToolButton()
                 if os.path.exists(icon_path):
                     button.setIcon(QIcon(icon_path))
                 else:
-                    # Fallback to a default icon based on tooltip
                     if tooltip == "Cursor":
                         default_icon = QIcon.fromTheme("cursor-arrow")
                     elif tooltip == "Rotate":
@@ -101,9 +87,9 @@ class MainScreen(QWidget):
                     elif tooltip == "Move":
                         default_icon = QIcon.fromTheme("transform-move")
                     elif tooltip == "resize":
-                        default_icon = QIcon.fromTheme("transform-scale")  # Ölçeklendirme için uygun bir tema ikonu
+                        default_icon = QIcon.fromTheme("transform-scale")
                     elif tooltip == "Transparency":
-                        default_icon = QIcon.fromTheme("view-transparency")  # Transparency için uygun bir tema ikonu
+                        default_icon = QIcon.fromTheme("view-transparency")
                     elif tooltip == "Background Color":
                         default_icon = QIcon.fromTheme("color-picker")
                     elif tooltip == "Cut":
@@ -120,7 +106,6 @@ class MainScreen(QWidget):
                 button.setToolTip(tooltip)
                 button.setStyleSheet(self.inactive_style)
                 if tooltip in ["Cursor", "Rotate", "Move", "resize", "Cut", "Transparency"]:
-                    # Use a lambda with default argument to capture current tooltip
                     button.clicked.connect(lambda checked, tool=tooltip: self.activate_tool(tool))
                 elif tooltip == "Background Color":
                     button.clicked.connect(self.cube_widget.set_background_color)
@@ -130,29 +115,20 @@ class MainScreen(QWidget):
                     button.clicked.connect(self.main_window.go_entry_screen)
                 elif tooltip == "Objeyi Sil":
                     button.clicked.connect(self.cube_widget.delete_selected_object)
-
             self.tool_buttons[tooltip] = button
             self.tool_bar_layout.addWidget(button)
-
-        self.tool_bar_layout.addStretch()  # Push buttons to the top
-
+        self.tool_bar_layout.addStretch()
         main_layout = QHBoxLayout(self)
         main_layout.addWidget(self.tool_bar)
         main_layout.addWidget(self.cube_widget)
         self.setLayout(main_layout)
 
     def activate_tool(self, tool):
-        """
-        Activate or deactivate a tool based on its current state.
-        """
         if self.current_tool == tool:
-            # Deactivate the tool
             self.current_tool = None
-            self.cube_widget.set_mode(None)  # Reset to default mode (Cursor)
+            self.cube_widget.set_mode(None)
         else:
-            # Activate the new tool
             self.current_tool = tool
-            # Set the transformation mode
             if tool == "Cursor":
                 self.cube_widget.set_mode(None)
             elif tool == "Rotate":
@@ -160,13 +136,11 @@ class MainScreen(QWidget):
             elif tool == "Move":
                 self.cube_widget.set_mode("move")
             elif tool == "resize":
-                self.cube_widget.set_mode("resize")  # "resize" modunu ayarla
+                self.cube_widget.set_mode("resize")
             elif tool == "Cut":
                 self.cube_widget.set_mode("cut")
             elif tool == "Transparency":
-                self.cube_widget.set_mode("transparency")  # Yeni "transparency" modunu ayarla
-
-        # Update button styles
+                self.cube_widget.set_mode("transparency")
         for ttip, btn in self.tool_buttons.items():
             if ttip in ["Cursor", "Rotate", "Move", "resize", "Cut", "Transparency"]:
                 if ttip == self.current_tool:
@@ -181,5 +155,3 @@ class MainScreen(QWidget):
             if obj_file:
                 self.cube_widget.load_obj(obj_file)
                 self.main_window.go_main_screen()
-
-
