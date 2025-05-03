@@ -66,16 +66,31 @@ class Cube3DWidget(QGLWidget):
         glScalef(m.scale, m.scale, m.scale)
         glMultMatrixf(m.rotation.flatten('F'))
         a = 0.1 if m.transparent else 1.0
+
+        # Eğer pick modunda id_color verilmişse onu kullan
         if id_color:
             glColor3f(*id_color)
+        # Vertex-color varsa onu kullan, yoksa tek renk
+        elif m.vbo_c:
+            glEnableClientState(GL_COLOR_ARRAY)
+            glBindBuffer(GL_ARRAY_BUFFER, m.vbo_c)
+            glColorPointer(3, GL_FLOAT, 0, None)
         else:
             glColor4f(*m.color, a)
+
+        # Vertex pozisyonu
         glBindBuffer(GL_ARRAY_BUFFER, m.vbo_v)
         glEnableClientState(GL_VERTEX_ARRAY)
         glVertexPointer(3, GL_FLOAT, 0, None)
+
+        # Çizim
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m.vbo_i)
         glDrawElements(GL_TRIANGLES, m.index_count, GL_UNSIGNED_INT, None)
+
+        # Cleanup
         glDisableClientState(GL_VERTEX_ARRAY)
+        if m.vbo_c:
+            glDisableClientState(GL_COLOR_ARRAY)
         glBindBuffer(GL_ARRAY_BUFFER, 0)
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0)
         glPopMatrix()
@@ -173,11 +188,14 @@ class Cube3DWidget(QGLWidget):
 
     def load_obj(self, fn):
         self.save_state()
-        verts, faces = [], []
+        verts, faces, cols = [], [], []
         with open(fn, 'r', errors='ignore') as f:
             for line in f:
                 if line.startswith('v '):
-                    verts.append(list(map(float, line.split()[1:4])))
+                    vals = list(map(float, line.split()[1:]))
+                    verts.append(vals[:3])
+                    if len(vals) >= 6:
+                        cols.append(vals[3:6])
                 elif line.startswith('f '):
                     idx = [int(p.split('/')[0]) - 1 for p in line.split()[1:]]
                     if len(idx) >= 3:
@@ -185,11 +203,14 @@ class Cube3DWidget(QGLWidget):
                             faces.append([idx[0], idx[i], idx[i + 1]])
         if not verts or not faces:
             return
+
         self.makeCurrent()
         verts = np.asarray(verts, np.float32)
         faces = np.asarray(faces, np.uint32).flatten()
         verts -= verts.mean(axis=0)
-        mesh = Mesh(verts, faces)
+
+        colors = np.asarray(cols, np.float32) if cols else None
+        mesh = Mesh(verts, faces, colors)
         mesh.id = self.next_color_id
         self.next_color_id += 1
         self.meshes.append(mesh)

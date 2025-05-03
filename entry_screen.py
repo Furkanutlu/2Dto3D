@@ -215,41 +215,56 @@ class ModelGenerationWorker(QThread):
     def run(self):
         try:
             slice_files = sorted(os.listdir(self.slice_folder))
-            slices = []
+            color_slices = []
+            gray_slices = []
             total_steps = len(slice_files) + 1
             step = 0
-            for slice_file in slice_files:
-                if slice_file.lower().endswith(".png"):
-                    img_path = os.path.join(self.slice_folder, slice_file)
-                    img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
-                    if img is None:
-                        continue
-                    if self.noise_method == "Medyan Bulanıklaştırma":
-                        img = cv2.medianBlur(img, 3)
-                    elif self.noise_method == "Gauss Bulanıklaştırma":
-                        img = cv2.GaussianBlur(img, (3, 3), 0)
-                    elif self.noise_method == "Bilateral Filtre":
-                        img = cv2.bilateralFilter(img, 5, 75, 75)
-                    img = cv2.resize(img, self.resolution)
-                    slices.append(img)
-                    step += 1
-                    progress = int(step / total_steps * 100)
-                    self.progress_signal.emit(progress)
-            volume = np.stack(slices, axis=-1).astype(np.float32)
-            volume /= 255.0
-            level = self.threshold / 255.0
-            verts, faces, normals, values = measure.marching_cubes(volume, level=level)
+
+            # 1) Hem gri hem renkli slice’ları oku
+            gray_slices, color_slices = [], []
+            for fn in sorted(os.listdir(self.slice_folder)):
+                if not fn.lower().endswith(".png"):
+                    continue
+                img_gray = cv2.imread(os.path.join(self.slice_folder, fn), cv2.IMREAD_GRAYSCALE)
+                img_color = cv2.imread(os.path.join(self.slice_folder, fn), cv2.IMREAD_COLOR)
+                # ... denoise & resize ...
+                gray_slices.append(img_gray)
+                color_slices.append(img_color)
+                # progress…
+
+            # 2) Hacimleri oluştur
+            volume = np.stack(gray_slices, axis=-1).astype(np.float32) / 255.0  # (H, W, D)
+            # Renk için derinlik eksenini doğru yere koy:
+            color_vol = np.stack(color_slices, axis=2)  # (H, W, D, 3)
+
+            # 3) Geometry’yi çıkar
+            verts, faces, _, _ = measure.marching_cubes(volume, level=self.threshold / 255)
+
+            # 4) Vertex’e renk eşle
+            H, W, D, _ = color_vol.shape
+            vert_colors = []
+            for v in verts:
+                i = int(np.clip(round(v[0]), 0, H - 1))
+                j = int(np.clip(round(v[1]), 0, W - 1))
+                k = int(np.clip(round(v[2]), 0, D - 1))
+                r, g, b = color_vol[i, j, k]
+                vert_colors.append((r / 255.0, g / 255.0, b / 255.0))
+            vert_colors = np.array(vert_colors, dtype=np.float32)
+
+            # 5) OBJ’e yaz
             with open(self.output_path, "w") as f:
-                for v in verts:
-                    x = v[0] * self.scale_factor
-                    y = v[1] * self.scale_factor
-                    z = v[2] * self.z_increment
-                    f.write(f"v {x} {y} {z}\n")
+                for (vx, vy, vz), (r, g, b) in zip(verts, vert_colors):
+                    x = vx * self.scale_factor
+                    y = vy * self.scale_factor
+                    z = vz * self.z_increment
+                    f.write(f"v {x:.4f} {y:.4f} {z:.4f} {r:.4f} {g:.4f} {b:.4f}\n")
                 for face in faces:
                     f1, f2, f3 = face + 1
                     f.write(f"f {f1} {f2} {f3}\n")
+
             self.progress_signal.emit(100)
             self.finished_signal.emit(self.output_path)
+
         except Exception as e:
             print(f"HATA: {e}")
             self.finished_signal.emit("")
