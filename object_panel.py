@@ -1,0 +1,76 @@
+from PyQt5.QtWidgets import QWidget, QListWidget, QVBoxLayout, QLabel, QSizePolicy
+from PyQt5.QtCore    import Qt
+
+
+class ObjectPanel(QWidget):
+    """
+    Sağ kenarda açılıp-kapanan listede sahnedeki bütün Mesh’ler görünür.
+    Satıra tıklandığında obje seçilir; aynı satıra yeniden tıklayınca seçim kalkar.
+    """
+    def __init__(self, cube_widget, parent=None):
+        super().__init__(parent)
+        self.cube_widget = cube_widget
+
+        # panel ölçüsü
+        self.setFixedWidth(180)
+        self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
+
+        # başlık (tıklanarak aç/kapa)
+        self.title = QLabel("▾ Objeler")
+        self.title.setAlignment(Qt.AlignCenter)
+        self.title.setStyleSheet("background:#dddddd;font-weight:bold;")
+        self.title.mousePressEvent = self._toggle
+
+        # liste
+        self.list = QListWidget()
+        self.list.itemClicked.connect(self._click_item)
+
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.addWidget(self.title)
+        lay.addWidget(self.list)
+
+        # cube_widget sinyallerine bağlan
+        cube_widget.scene_changed.connect(self._refresh)
+        cube_widget.selection_changed.connect(self._mark)
+
+        self._collapsed = False
+        self._refresh()
+
+    # ------------------------------------------------------------
+    def _toggle(self, *_):
+        self._collapsed = not self._collapsed
+        self.list.setVisible(not self._collapsed)
+        self.title.setText(("▾ " if not self._collapsed else "▸ ") + "Objeler")
+
+    # ------------------------------------------------------------
+    def _refresh(self):
+        """Sahnedeki Mesh’leri listeye yeniden doldurur."""
+        self.list.clear()
+        for m in self.cube_widget.meshes:
+            prefix = "✓ " if m == self.cube_widget.selected_mesh else ""
+            self.list.addItem(prefix + m.name)
+
+    # ------------------------------------------------------------
+    def _mark(self, mesh_id: int):
+        """Seçilen mesh değiştiğinde ✓ işaretini güncelle."""
+        for row, m in enumerate(self.cube_widget.meshes):
+            prefix = "✓ " if m.id == mesh_id else ""
+            self.list.item(row).setText(prefix + m.name)
+
+    # ------------------------------------------------------------
+    def _click_item(self, item):
+        """Liste satırına tıklandığında obje seç / seçimi kaldır."""
+        name_clicked = item.text().lstrip("✓ ").strip()
+        target = next((m for m in self.cube_widget.meshes
+                       if m.name == name_clicked), None)
+
+        if target == self.cube_widget.selected_mesh:       # tekrar tıklandı → kaldır
+            self.cube_widget.selected_mesh = None
+            self.cube_widget.selection_changed.emit(-1)
+        else:                                              # yeni seçim
+            self.cube_widget.selected_mesh = target
+            self.cube_widget.selection_changed.emit(target.id)
+
+        self.cube_widget.update()
+        self._refresh()
