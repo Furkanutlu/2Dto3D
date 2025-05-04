@@ -1,9 +1,9 @@
 from PyQt5.QtWidgets import QColorDialog, QOpenGLWidget
-from PyQt5.QtCore    import Qt
-from OpenGL.GL       import *
-from OpenGL.GLU      import gluPerspective
-from mesh            import Mesh
-from shader_utils    import build_program   #  ← EKLE
+from PyQt5.QtCore import Qt
+from OpenGL.GL import *
+from OpenGL.GLU import gluPerspective
+from mesh import Mesh
+from shader_utils import build_program   #  ← EKLE
 import numpy as np, copy, math, os, sys     #  ← sys de eklendi
 from PyQt5.QtCore import Qt, pyqtSignal
 
