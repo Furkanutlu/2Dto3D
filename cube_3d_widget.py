@@ -224,15 +224,43 @@ class Cube3DWidget(QOpenGLWidget):
         self.redo_stack.clear()
 
     def load_state(self, s):
+        """Undo/redo için kaydedilmiş durumu geri yükler ve GPU tamponlarını günceller."""
+        # 1) Python-side kopyaları yükle
         self.meshes = copy.deepcopy(s['meshes'])
+        # 2) GPU buffer’larını yeniden oluştur
+        for m in self.meshes:
+            # Vertex positions
+            glBindBuffer(GL_ARRAY_BUFFER, m.vbo_v)
+            glBufferData(GL_ARRAY_BUFFER,
+                         m.vertices.nbytes,
+                         m.vertices,
+                         GL_STATIC_DRAW)
+            # Indices
+            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m.vbo_i)
+            glBufferData(GL_ELEMENT_ARRAY_BUFFER,
+                         m.indices.nbytes,
+                         m.indices,
+                         GL_STATIC_DRAW)
+            # Renk buffer’ı varsa (opsiyonel)
+            if getattr(m, 'vbo_c', None):
+                glBindBuffer(GL_ARRAY_BUFFER, m.vbo_c)
+                glBufferData(GL_ARRAY_BUFFER,
+                             m.colors.nbytes,
+                             m.colors,
+                             GL_STATIC_DRAW)
+
+        # 3) Kamera & sahne durumunu yükle
         self.rotation_matrix = s['rotation_matrix'].copy()
         self.x_translation = s['x_translation']
         self.y_translation = s['y_translation']
         self.zoom = s['zoom']
+        # 4) Arkaplan rengi
         self.bg_color = s.get('bg_color', self.bg_color)
         glClearColor(*self.bg_color)
+        # 5) Seçili mesh’i geri yükle
         sid = s['selected_id']
         self.selected_mesh = next((m for m in self.meshes if m.id == sid), None)
+        # 6) Görünümü güncelle
         self.update()
 
     def undo(self):
@@ -342,23 +370,23 @@ class Cube3DWidget(QOpenGLWidget):
         if e.button() not in (Qt.LeftButton, Qt.RightButton):
             return
 
+        # normal drag flag’ini güncelle
         self._dragging = True
         self.last_mouse_position = e.pos()
 
+        # --- KESME KİPİNDE İLK TIK: başlangıç noktasını ve matrisleri ayıkla
         if self.cut_mode and e.button() == Qt.LeftButton:
             self.cut_start_pos = e.pos()
-            # ↓↓↓  Dragging’i kapat, böylece release’de ekstra save_state eklenmez
-            self._dragging = False
-            # kayıtlı VIEW / PROJ matrislerini sakla
-            self._cut_view_mat = np.linalg.inv(self._view_mat())
-            self._cut_proj_mat = np.linalg.inv(self._proj_mat())
+            self._dragging = False  # cut olarak handle et
+            # kamera matrislerinin tersini sakla
+            self._cut_proj_inv = np.linalg.inv(self._proj_mat())
+            self._cut_view_inv = np.linalg.inv(self._view_mat())
             return
 
-        # --- NORMAL işlem: seçim veya kamerayı/meşi sürükleme
+        # --- NORMAL SOL TUŞ: seçim
         if e.button() == Qt.LeftButton and self.mode is None:
             self.selected_mesh = self._pick(e.pos())
             self.update()
-        # sağ tık ya da modlu sürükleme: hareket/döndürme vb.
 
     def mouseMoveEvent(self, e):
         if self.cut_mode and self.cut_start_pos:
@@ -410,42 +438,44 @@ class Cube3DWidget(QOpenGLWidget):
         self.update()
 
     def mouseReleaseEvent(self, e):
+        # drag sonucu undo yalnızca cut_mod değilse kaydet
         if self._dragging and not self.cut_mode:
             self.save_state()
         self._dragging = False
+
+        # --- KESME KİPİNDE SOL TUŞA BIRAKMA: düzlemi uygula
         if e.button() == Qt.LeftButton and self.cut_mode and self.cut_start_pos:
-            # fare bırakıldı: çizgi tamamlandı → kes
             self.cut_end_pos = e.pos()
             self.cut_mode = False
             self.setCursor(Qt.ArrowCursor)
-            self._perform_cut()  # <<<  EKLENDİ
-            # sıfırla
+            self._perform_cut()  # burada save_state var
             self.cut_start_pos = self.cut_end_pos = None
             self.update()
-        else:
-            self.last_mouse_position = None
+            return
+
+        # diğer release olayları
+        self.last_mouse_position = None
 
     def _perform_cut(self):
+        """
+        cut_start_pos ve cut_end_pos arasında tanımlanan 2D çizgiye göre
+        3D düzlem çıkarır, sahnedeki tüm mesh’leri keser.
+        """
         if not (self.cut_start_pos and self.cut_end_pos):
             return
 
-        # ---------------- 1) SAHNENİN MEVCUT HALİNİ KAYDET ----------------
-        self.save_state()                      # ← önce bu!
+        # 1) SAHNEYİ YIĞINA AL
+        self.save_state()
 
-        # ---------------- 2) 2D çizgi → 3D düzlem -------------------------
+        # 2) EKRAN → DÜNYA NDC → göz → dünya
         sx, sy = self.cut_start_pos.x(), self.cut_start_pos.y()
         ex, ey = self.cut_end_pos.x(),   self.cut_end_pos.y()
-        w, h   = self.width(), self.height()
 
-        ndc_s = np.array([ 2*sx/w - 1,  1 - 2*sy/h, 0, 1], np.float32)
-        ndc_e = np.array([ 2*ex/w - 1,  1 - 2*ey/h, 0, 1], np.float32)
+        ws = self._screen_to_world(sx, sy, self._cut_proj_inv, self._cut_view_inv)
+        we = self._screen_to_world(ex, ey, self._cut_proj_inv, self._cut_view_inv)
 
-        inv_proj = np.linalg.inv(self._proj_mat())
-        inv_view = np.linalg.inv(self._view_mat())
-        ws = self._screen_to_world(sx, sy, self._cut_proj_mat, self._cut_view_mat)
-        we = self._screen_to_world(ex, ey, self._cut_proj_mat, self._cut_view_mat)
-
-        cam_fwd = self.rotation_matrix[:3, 2]          # -z ekseni
+        # 3) düzlem normalini hesapla
+        cam_fwd = self.rotation_matrix[:3, 2]
         edge    = we - ws
         normal  = np.cross(edge, cam_fwd)
         if np.linalg.norm(normal) < 1e-6:
@@ -453,15 +483,15 @@ class Cube3DWidget(QOpenGLWidget):
         normal /= np.linalg.norm(normal)
         d = -np.dot(normal, ws)
 
-        # ---------------- 3) MESH'LERİN ÜÇGENLERİNİ KES -------------------
+        # 4) her mesh’i kes ve yeni listeye ekle
         new_meshes = []
         for m in self.meshes:
-            if m.cut_by_plane(normal, d):              # True = kalan var
+            if m.cut_by_plane(normal, d):
                 new_meshes.append(m)
         self.meshes = new_meshes
         self.selected_mesh = None
 
-        # ---------------- 4) PANEL / SAHNE GÜNCELLEMELERİ -----------------
+        # 5) panel ve görünümü güncelle
         self.scene_changed.emit()
         self.selection_changed.emit(-1)
         self.update()
