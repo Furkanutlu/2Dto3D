@@ -4,6 +4,7 @@ from OpenGL.GL import *
 from OpenGL.GLU import gluPerspective
 from mesh import Mesh
 from shader_utils import build_program   #  ← EKLE
+from OpenGL.GL import glGetDoublev, GL_PROJECTION_MATRIX, GL_MODELVIEW_MATRIX
 import numpy as np, copy, math, os, sys     #  ← sys de eklendi
 from PyQt5.QtCore import Qt, pyqtSignal
 
@@ -95,6 +96,7 @@ class Cube3DWidget(QOpenGLWidget):
         if self.selected_mesh:
             self._highlight(self.selected_mesh)
         self._draw_cut_line()
+
 
     def _create_vao(self, m):
         if not self.use_vao:
@@ -378,9 +380,7 @@ class Cube3DWidget(QOpenGLWidget):
         if self.cut_mode and e.button() == Qt.LeftButton:
             self.cut_start_pos = e.pos()
             self._dragging = False  # cut olarak handle et
-            # kamera matrislerinin tersini sakla
-            self._cut_proj_inv = np.linalg.inv(self._proj_mat())
-            self._cut_view_inv = np.linalg.inv(self._view_mat())
+            self.update()
             return
 
         # --- NORMAL SOL TUŞ: seçim
@@ -455,43 +455,108 @@ class Cube3DWidget(QOpenGLWidget):
 
         # diğer release olayları
         self.last_mouse_position = None
+    def screen_to_world(self, sx, sy, proj_inv, view_inv):
+        # Convert from Qt (0,0 top-left) to OpenGL (0,0 bottom-left)
+        h = self.height()
+        y_gl = h - sy
 
+        # NDC coords
+        x_ndc =  2.0 * sx / self.width()  - 1.0
+        y_ndc =  2.0 * y_gl / h           - 1.0
+        z_ndc = -1.0   # near plane in GL NDC
+
+        ndc = np.array([x_ndc, y_ndc, z_ndc, 1.0], dtype=np.float64)
+        # eye‐space
+        eye = proj_inv @ ndc
+        eye /= eye[3]
+        # world‐space
+        world = view_inv @ eye
+        world /= world[3]
+        return world[:3]
     def _perform_cut(self):
-        """
-        cut_start_pos ve cut_end_pos arasında tanımlanan 2D çizgiye göre
-        3D düzlem çıkarır, sahnedeki tüm mesh’leri keser.
-        """
-        if not (self.cut_start_pos and self.cut_end_pos):
+        # 1) must have start/end and a mesh
+        if not (self.cut_start_pos and self.cut_end_pos and self.selected_mesh):
             return
-
-        # 1) SAHNEYİ YIĞINA AL
+        # 2) save for undo
         self.save_state()
 
-        # 2) EKRAN → DÜNYA NDC → göz → dünya
+        # 3) fetch & invert current GL matrices
+        proj  = glGetDoublev(GL_PROJECTION_MATRIX)
+        model = glGetDoublev(GL_MODELVIEW_MATRIX)
+        P     = np.array(proj,  dtype=np.float64).reshape(4,4).T
+        V     = np.array(model, dtype=np.float64).reshape(4,4).T
+        proj_inv = np.linalg.inv(P)
+        view_inv = np.linalg.inv(V)
+
+        # 4) unproject your two screen points
         sx, sy = self.cut_start_pos.x(), self.cut_start_pos.y()
         ex, ey = self.cut_end_pos.x(),   self.cut_end_pos.y()
+        ws = self.screen_to_world(sx, sy, proj_inv, view_inv)
+        we = self.screen_to_world(ex, ey, proj_inv, view_inv)
 
-        ws = self._screen_to_world(sx, sy, self._cut_proj_inv, self._cut_view_inv)
-        we = self._screen_to_world(ex, ey, self._cut_proj_inv, self._cut_view_inv)
+        # 5) camera world‐position
+        cam_h   = view_inv @ np.array([0.0, 0.0, 0.0, 1.0], dtype=np.float64)
+        cam_pos = cam_h[:3] / cam_h[3]
 
-        # 3) düzlem normalini hesapla
-        cam_fwd = self.rotation_matrix[:3, 2]
-        edge    = we - ws
-        normal  = np.cross(edge, cam_fwd)
-        if np.linalg.norm(normal) < 1e-6:
+        # 6) build plane from the two rays (camera→ws) and (camera→we)
+        a = ws - cam_pos
+        b = we - cam_pos
+        normal = np.cross(a, b)
+        nrm = np.linalg.norm(normal)
+        if nrm < 1e-6:
             return
-        normal /= np.linalg.norm(normal)
-        d = -np.dot(normal, ws)
+        normal /= nrm
+        d = -normal.dot(cam_pos)
 
-        # 4) her mesh’i kes ve yeni listeye ekle
-        new_meshes = []
-        for m in self.meshes:
-            if m.cut_by_plane(normal, d):
-                new_meshes.append(m)
-        self.meshes = new_meshes
+        # 7) copy your mesh data
+        orig      = self.selected_mesh
+        verts     = orig.vertices.copy()
+        inds      = orig.indices.copy()
+        orig_cols = getattr(orig, 'colors', None)
+
+        # 8) make two new Mesh’es (“keep” + “cut”)
+        mk = Mesh(verts, inds,
+                  colors=orig_cols,
+                  color=orig.color,
+                  mesh_name=orig.name + "_keep")
+        mc = Mesh(verts, inds,
+                  colors=orig_cols,
+                  color=orig.color,
+                  mesh_name=orig.name + "_cut")
+
+        # 9) reupload VBO colors if any
+        if orig_cols is not None:
+            glBindBuffer(GL_ARRAY_BUFFER, mk.vbo_c)
+            glBufferData(GL_ARRAY_BUFFER,
+                         orig_cols.nbytes,
+                         orig_cols,
+                         GL_STATIC_DRAW)
+
+        # 10) preserve id, transform & material
+        mk.id           = orig.id
+        mk.translation  = orig.translation.copy()
+        mk.rotation     = orig.rotation.copy()
+        mk.scale        = orig.scale
+        mk.color        = orig.color
+        mk.transparent  = orig.transparent
+
+        mc.id            = self.next_color_id;  self.next_color_id += 1
+        mc.translation   = orig.translation.copy()
+        mc.rotation      = orig.rotation.copy()
+        mc.scale         = orig.scale
+        mc.color         = orig.color
+        mc.transparent   = orig.transparent
+
+        # 11) finally cut
+        mk.cut_by_plane( normal,  d)
+        mc.cut_by_plane(-normal, -d)
+
+        # 12) swap them into your scene
+        self.meshes.remove(orig)
+        self.meshes.extend([mk, mc])
         self.selected_mesh = None
 
-        # 5) panel ve görünümü güncelle
+        # 13) UI refresh
         self.scene_changed.emit()
         self.selection_changed.emit(-1)
         self.update()

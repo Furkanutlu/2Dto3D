@@ -14,6 +14,7 @@ class Mesh:
         self.indices = indices.copy()
         self.index_count = indices.size
         self.color = color
+        self.colors = colors.copy()
         self.translation = np.zeros(3, np.float32)
         self.scale = 1.0
         self.rotation = np.identity(4, np.float32)
@@ -58,28 +59,50 @@ class Mesh:
     def cut_by_plane(self, n: np.ndarray, d: float) -> bool:
         """
         n·p + d = 0 düzleminin n·p + d < 0 tarafını SİLER.
-        Üçgenin üç verteksi de kesilen taraftaysa yüzey atılır.
+        Üçgenin tüm verteksi kesim tarafındaysa yüzey atılır.
         Dönüş: Mesh boş kalırsa False (sahneden atılmalı).
         """
-        # 1) world koordinatına dönüştür
+        # 1) World-space’e dönüştürülmüş vertex’ler
         R = self.rotation[:3, :3] * self.scale
         verts_w = (R @ self.vertices.T).T + self.translation
 
-        # 2) işaretleri bul
-        sign = verts_w @ n + d  # Nx1
-        keep_mask = sign >= 0  # True → ön tarafta
+        # 2) Her vertex’in düzleme göre işareti
+        sign = verts_w @ n + d  # (N,)
+        keep_mask = sign >= 0  # True → bu vertex kalacak
 
-        # 3) index buffer üçer üçer tara
-        faces = self.indices.reshape(-1, 3)
-        keep_faces = keep_mask[faces].all(axis=1)
+        # 3) Üçgenleri (faces) ayıkla
+        faces = self.indices.reshape(-1, 3)  # (M,3)
+        keep_faces = keep_mask[faces].all(axis=1)  # (M,)
         if not keep_faces.any():
-            return False  # mesh tamamen siliniyor
+            return False  # Tüm mesh siliniyor
 
-        self.indices = faces[keep_faces].flatten().astype(np.uint32)
-        self.index_count = self.indices.size
+        kept = faces[keep_faces]  # (K,3)
 
-        # 4) VBO’yu güncelle
+        # 4) Sadece kullanılan vertex indekslerini bulup tekilleştir
+        flat_idxs, inv_map = np.unique(kept.flatten(), return_inverse=True)
+
+        # 5) Yeni vertex ve index dizilerini oluştur
+        new_vertices = self.vertices[flat_idxs]  # (V',3)
+        new_indices = inv_map.reshape(-1, 3).astype(np.uint32)  # (K,3)
+        new_indices = new_indices.flatten()  # (K*3,)
+
+        # 6) Mesh verisini güncelle
+        self.vertices = new_vertices
+        self.indices = new_indices
+        self.index_count = new_indices.size
+
+        # 7) GPU buffer’larını yenile
+        #    vertex buffer
+        glBindBuffer(GL_ARRAY_BUFFER, self.vbo_v)
+        glBufferData(GL_ARRAY_BUFFER,
+                     self.vertices.nbytes,
+                     self.vertices,
+                     GL_STATIC_DRAW)
+        #    index buffer
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self.vbo_i)
         glBufferData(GL_ELEMENT_ARRAY_BUFFER,
-                     self.indices.nbytes, self.indices, GL_STATIC_DRAW)
+                     self.indices.nbytes,
+                     self.indices,
+                     GL_STATIC_DRAW)
+
         return True
