@@ -14,7 +14,11 @@ class Mesh:
         self.indices = indices.copy()
         self.index_count = indices.size
         self.color = color
-        self.colors = colors.copy()
+        # colors None olabilir, öyleyse kopyalamaya çalışmayalım:
+        if colors is not None:
+            self.colors = colors.copy()
+        else:
+            self.colors = None
         self.translation = np.zeros(3, np.float32)
         self.scale = 1.0
         self.rotation = np.identity(4, np.float32)
@@ -56,7 +60,7 @@ class Mesh:
         corners += self.translation
         return corners.min(0), corners.max(0)
 
-    def cut_by_plane(self, n: np.ndarray, d: float) -> bool:
+    def cut_by_plane(self, n: np.ndarray, d: float, progress_callback=None) -> bool:
         """
         n·p + d = 0 düzlemi ile gerçek split:
          - self.vertices / self.colors üzerinden Sutherland–Hodgman ile klipleme yapar
@@ -72,11 +76,15 @@ class Mesh:
         d_local = d + n.dot(self.translation)
 
         verts = self.vertices
-        cols  = self.colors if hasattr(self, 'colors') else None
+        cols = self.colors if hasattr(self, 'colors') else None
         faces = self.indices.reshape(-1, 3)
 
+        # ——— [EKLENDİ] toplam yüz sayısını hesapla ve QApplication’ı import et
+        total = len(faces)
+        from PyQt5.QtWidgets import QApplication
+
         new_verts = []
-        new_cols  = [] if cols is not None else None
+        new_cols = [] if cols is not None else None
         new_faces = []
 
         # yardımcı: bir poligonu yarıya kliple
@@ -95,7 +103,8 @@ class Mesh:
                 # 1) eğer P içerdeyse, kaydet
                 if insideP:
                     out_pts.append(P)
-                    if poly_cols is not None: out_cols.append(cP)
+                    if poly_cols is not None:
+                        out_cols.append(cP)
 
                 # 2) kenar kesişiyorsa, kesişim noktasını ekle
                 if insideP != insideQ:
@@ -109,7 +118,7 @@ class Mesh:
             return out_pts, out_cols
 
         # her üçgeni ayrıştır
-        for f in faces:
+        for idx, f in enumerate(faces):
             p = [verts[i] for i in f]
             c = [cols[i] for i in f] if cols is not None else None
             s = [float(n_local.dot(pi) + d_local) for pi in p]
@@ -121,26 +130,34 @@ class Mesh:
 
             # triangulate ve ekle
             def emit(poly, colpoly):
-                if len(poly) < 3: return
+                if len(poly) < 3:
+                    return
                 # v0, v1, v2... fan triangulation
                 base = len(new_verts)
                 for pt in poly:
                     new_verts.append(pt)
-                    if new_cols is not None: new_cols.append(colpoly.pop(0))
+                    if new_cols is not None:
+                        new_cols.append(colpoly.pop(0))
                 for k in range(1, len(poly) - 1):
                     new_faces.append([base, base + k, base + k + 1])
 
             # bu mesh.method çağrısı pozitif tarafı tutacağı için sadece pos ekle
             emit(poly_pos, col_pos)
 
+            # ——— [EKLENDİ] ilerleme callback’i ve UI güncellemesi
+            if progress_callback:
+                pct = int((idx + 1) / total * 100)
+                progress_callback(pct)
+                QApplication.processEvents()
+
         if not new_faces:
             return False
 
         # flatten ve yeniden atama
         new_verts = np.array(new_verts, np.float32)
-        new_idx   = np.array(new_faces, np.uint32).flatten()
-        self.vertices   = new_verts
-        self.indices    = new_idx
+        new_idx = np.array(new_faces, np.uint32).flatten()
+        self.vertices = new_verts
+        self.indices = new_idx
         self.index_count = new_idx.size
 
         # renk varsa güncelle

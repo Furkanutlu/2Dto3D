@@ -7,6 +7,8 @@ from shader_utils import build_program   #  ← EKLE
 from OpenGL.GL import glGetDoublev, GL_PROJECTION_MATRIX, GL_MODELVIEW_MATRIX
 import numpy as np, copy, math, os, sys     #  ← sys de eklendi
 from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtWidgets import QProgressDialog
+from PyQt5.QtCore import Qt
 
 class Cube3DWidget(QOpenGLWidget):
     scene_changed = pyqtSignal()  # objeler eklendi/silindi
@@ -18,6 +20,9 @@ class Cube3DWidget(QOpenGLWidget):
         self.x_translation = 0.0
         self.y_translation = 0.0
         self.zoom = -6.0
+        # how many lines each side of center; increase for finer “infinite” illusion
+        self._grid_half_count = 200
+        self._grid_spacing = 1.0
         self.last_mouse_position = None
         self.mode = None
         self.bg_color = (1, 1, 1, 1)
@@ -26,6 +31,16 @@ class Cube3DWidget(QOpenGLWidget):
         self.redo_stack = []
         self.meshes = []
         self.selected_mesh = None
+
+        self.axis_visible = True
+        self.axis_length = 5.0
+        self.grid_visible = True
+
+        # grid_mode: 'all', 'xy', 'xz', 'yz'
+        self.grid_mode = 'all'
+        self._grid_half_count = 200
+        self._grid_spacing = 1.0
+
         self.next_color_id = 1
         self.cut_mode = False
         self.cut_start_pos = None
@@ -37,6 +52,8 @@ class Cube3DWidget(QOpenGLWidget):
         self.sens_resize = 0.01
         self.sens_zoom = self.sens_resize
         self.use_shader = False
+        # camera konfigürasyonu projeye göre ayarlayın
+        self.camera = None
 
     def initializeGL(self):
         glEnable(GL_DEPTH_TEST)
@@ -85,18 +102,173 @@ class Cube3DWidget(QOpenGLWidget):
         glViewport(0, 0, w, h)
         self._update_projection()  # <- her pencere yeniden çiziminde
 
+    def set_grid_mode(self, mode: str):
+        """
+        mode:
+          'all' – XY, XZ and YZ together
+          'xy'  – XY plane only
+          'xz'  – XZ plane only
+          'yz'  – YZ plane only
+        """
+        assert mode in ('all', 'xy', 'xz', 'yz'), f"Unknown grid_mode: {mode}"
+        self.grid_mode = mode
+        self.update()
+
+    def set_grid_spacing(self, spacing: float):
+        self._grid_spacing = spacing
+        # isteğe bağlı: half_count’ü de orantılamak isterseniz:
+        self._grid_half_count = int(200 * (1.0 / spacing))
+        self.update()
+
     def paintGL(self):
         self.debug_dump()
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
         glLoadIdentity()
         glTranslatef(self.x_translation, self.y_translation, self.zoom)
         glMultMatrixf(self.rotation_matrix.flatten('F'))
+
+        if self.grid_visible:
+            # 1) Shader’ı devre dışı bırak, ışığı kapat
+            glUseProgram(0)
+            glDisable(GL_LIGHTING)
+            if self.grid_mode == 'all':
+                self._draw_grid_xy()
+                self._draw_grid_xz()
+                self._draw_grid_yz()
+            elif self.grid_mode == 'xy':
+                self._draw_grid_xy()
+            elif self.grid_mode == 'xz':
+                self._draw_grid_xz()
+            elif self.grid_mode == 'yz':
+                self._draw_grid_yz()
+
+            glEnable(GL_LIGHTING)
+            if self.use_shader:
+                glUseProgram(self.prog)
+        if self.axis_visible:
+            # 1) turn off any shader and lighting so colors show up directly
+            glUseProgram(0)
+            glDisable(GL_LIGHTING)
+
+            # 2) draw axes in fixed‐color mode
+            glLineWidth(0.5)
+            self._draw_axis()
+
+            # 3) restore lighting + shader for the rest of the scene
+            glEnable(GL_LIGHTING)
+            if self.use_shader:
+                glUseProgram(self.prog)
+
         for m in self.meshes:
             self._draw_mesh(m)
         if self.selected_mesh:
             self._highlight(self.selected_mesh)
         self._draw_cut_line()
 
+    def set_axis_visible(self, visible: bool):
+        """Eksen çizimini aç/kapa."""
+        self.axis_visible = visible
+        self.update()
+
+    def set_grid_visible(self, visible: bool):
+        """Grid çizimini aç/kapa."""
+        self.grid_visible = visible
+        self.update()
+
+    def _draw_axis(self):
+        """X (kırmızı), Y (yeşil), Z (mavi) eksenlerini çizer."""
+        l = self.axis_length
+        glBegin(GL_LINES)
+        # X ekseni – kırmızı
+        glColor3f(1.0, 0.0, 0.0)
+        glVertex3f(0.0, 0.0, 0.0)
+        glVertex3f(l, 0.0, 0.0)
+        # Y ekseni – yeşil
+        glColor3f(0.0, 1.0, 0.0)
+        glVertex3f(0.0, 0.0, 0.0)
+        glVertex3f(0.0, l, 0.0)
+        # Z ekseni – mavi
+        glColor3f(0.0, 0.0, 1.0)
+        glVertex3f(0.0, 0.0, 0.0)
+        glVertex3f(0.0, 0.0, l)
+        glEnd()
+
+    def set_axis_length(self, length: float):
+        """Eksen uzunluğunu günceller ve yeniden çizim yapar."""
+        self.axis_length = length
+        self.update()
+
+    def _draw_grid_xy(self):
+        """XY düzleminde sonsuz ızgara (Z=0)."""
+        cam = getattr(self, 'camera', None)
+        cx = cy = 0.0
+        if cam:
+            pos = cam.position
+            s = self._grid_spacing
+            cx = math.floor(pos[0]/s) * s
+            cy = math.floor(pos[1]/s) * s
+
+        half = self._grid_half_count
+        s = self._grid_spacing
+        glColor3f(0.5, 0.5, 0.5)
+        glBegin(GL_LINES)
+        for i in range(-half, half+1):
+            off = i*s
+            # Y sabit çizgi (X boyunca)
+            glVertex3f(cx-half*s, cy+off, 0.0)
+            glVertex3f(cx+half*s, cy+off, 0.0)
+            # X sabit çizgi (Y boyunca)
+            glVertex3f(cx+off, cy-half*s, 0.0)
+            glVertex3f(cx+off, cy+half*s, 0.0)
+        glEnd()
+
+    def _draw_grid_xz(self):
+        """XZ düzleminde sonsuz ızgara (Y=0)."""
+        cam = getattr(self, 'camera', None)
+        cx = cz = 0.0
+        if cam:
+            pos = cam.position
+            s = self._grid_spacing
+            cx = math.floor(pos[0]/s) * s
+            cz = math.floor(pos[2]/s) * s
+
+        half = self._grid_half_count
+        s = self._grid_spacing
+        glColor3f(0.5, 0.5, 0.5)
+        glBegin(GL_LINES)
+        for i in range(-half, half+1):
+            off = i*s
+            # Z sabit çizgi (X boyunca)
+            glVertex3f(cx-half*s, 0.0, cz+off)
+            glVertex3f(cx+half*s, 0.0, cz+off)
+            # X sabit çizgi (Z boyunca)
+            glVertex3f(cx+off, 0.0, cz-half*s)
+            glVertex3f(cx+off, 0.0, cz+half*s)
+        glEnd()
+
+    def _draw_grid_yz(self):
+        """YZ düzleminde sonsuz ızgara (X=0)."""
+        cam = getattr(self, 'camera', None)
+        cy = cz = 0.0
+        if cam:
+            pos = cam.position
+            s = self._grid_spacing
+            cy = math.floor(pos[1]/s) * s
+            cz = math.floor(pos[2]/s) * s
+
+        half = self._grid_half_count
+        s = self._grid_spacing
+        glColor3f(0.5, 0.5, 0.5)
+        glBegin(GL_LINES)
+        for i in range(-half, half+1):
+            off = i*s
+            # Z sabit çizgi (Y boyunca)
+            glVertex3f(0.0, cy-half*s, cz+off)
+            glVertex3f(0.0, cy+half*s, cz+off)
+            # Y sabit çizgi (Z boyunca)
+            glVertex3f(0.0, cy+off, cz-half*s)
+            glVertex3f(0.0, cy+off, cz+half*s)
+        glEnd()
 
     def _create_vao(self, m):
         if not self.use_vao:
@@ -484,21 +656,23 @@ class Cube3DWidget(QOpenGLWidget):
         # 1) must have start/end and a mesh
         if not (self.cut_start_pos and self.cut_end_pos and self.selected_mesh):
             return
+            # 2) İlerleme iletişim kutusu
+        dp = QProgressDialog("Mesh bölünüyor...", "İptal", 0, 100, self)
+        dp.setWindowModality(Qt.WindowModal)
+        dp.setValue(0)
+        dp.show()
 
-        # 2) save for undo
+        # 3) Undo için mevcut durumu kaydet
         self.save_state()
 
-        # 2.5) ensure projection & modelview match what paintGL would have set,
-        #      even if paintGL hasn't run since the last user rotation/zoom.
-        #      _update_projection sets the GL_PROJECTION matrix and
-        #      switches back to GL_MODELVIEW.
+        # 4) GL matrislerini güncelle, paintGL ile senkronize et
         self._update_projection()
         glMatrixMode(GL_MODELVIEW)
         glLoadIdentity()
         glTranslatef(self.x_translation, self.y_translation, self.zoom)
         glMultMatrixf(self.rotation_matrix.flatten('F'))
 
-        # 3) now fetch & invert current GL matrices
+        # 5) Mevcut projeksiyon ve modelview matrislerini al ve terslerini hesapla
         proj = glGetDoublev(GL_PROJECTION_MATRIX)
         model = glGetDoublev(GL_MODELVIEW_MATRIX)
         P = np.array(proj, dtype=np.float64).reshape(4, 4).T
@@ -506,57 +680,71 @@ class Cube3DWidget(QOpenGLWidget):
         proj_inv = np.linalg.inv(P)
         view_inv = np.linalg.inv(V)
 
-        # 4) unproject your two screen points into world‐space rays
+        # 6) Ekrandaki iki noktayı dünya uzayına geri dönüştür
         sx, sy = self.cut_start_pos.x(), self.cut_start_pos.y()
         ex, ey = self.cut_end_pos.x(), self.cut_end_pos.y()
         ws = self.screen_to_world(sx, sy, proj_inv, view_inv)
         we = self.screen_to_world(ex, ey, proj_inv, view_inv)
 
-        # 5) camera world‐position
+        # 7) Kamera pozisyonunu dünya uzayında bul
         cam_h = view_inv @ np.array([0.0, 0.0, 0.0, 1.0], dtype=np.float64)
         cam_pos = cam_h[:3] / cam_h[3]
 
-        # 6) build plane from the two rays (camera→ws) and (camera→we)
+        # 8) İki ışınla düzlemi oluştur
         a = ws - cam_pos
         b = we - cam_pos
         normal = np.cross(a, b)
         nrm = np.linalg.norm(normal)
         if nrm < 1e-6:
+            dp.close()
             return
         normal /= nrm
         d = -normal.dot(cam_pos)
 
-        # 7) copy & cut the mesh
+        # 9) Mesh verilerini kopyala ve yeni Mesh örnekleri oluştur
         orig = self.selected_mesh
         verts = orig.vertices.copy()
         inds = orig.indices.copy()
         orig_cols = getattr(orig, 'colors', None)
 
-        mk = Mesh(verts, inds, colors=orig_cols, color=orig.color, mesh_name=orig.name + "_keep")
-        mc = Mesh(verts, inds, colors=orig_cols, color=orig.color, mesh_name=orig.name + "_cut")
+        mk = Mesh(verts, inds, colors=orig_cols,
+                  color=orig.color, mesh_name=orig.name + "_keep")
+        mc = Mesh(verts, inds, colors=orig_cols,
+                  color=orig.color, mesh_name=orig.name + "_cut")
 
-        # preserve transforms & reupload colors
-        mk.id, mc.id = orig.id, self.next_color_id;
+        # 10) Orijinal transform ve render ayarlarını aktar
+        mk.id, mc.id = orig.id, self.next_color_id
         self.next_color_id += 1
         for m in (mk, mc):
             m.translation = orig.translation.copy()
             m.rotation = orig.rotation.copy()
             m.scale = orig.scale
             m.transparent = orig.transparent
+
+        # VBO renk verisini yeniden yükle
         if orig_cols is not None:
+            from OpenGL.GL import glBindBuffer, glBufferData
             glBindBuffer(GL_ARRAY_BUFFER, mk.vbo_c)
             glBufferData(GL_ARRAY_BUFFER, orig_cols.nbytes, orig_cols, GL_STATIC_DRAW)
 
-        # 8) do the split
-        mk.cut_by_plane(normal, d)
-        mc.cut_by_plane(-normal, -d)
+        # 11) Kesme işlemini yap ve ilerleme callback ile göster
+        #    Pozitif yarı: %0–50
+        mk.cut_by_plane(normal, d,
+                        progress_callback=lambda p: dp.setValue(int(p * 0.5)))
+        #    Negatif yarı: %50–100
+        mc.cut_by_plane(-normal, -d,
+                        progress_callback=lambda p: dp.setValue(50 + int(p * 0.5)))
 
-        # 9) swap into scene
+        # 12) İşlem tamamlandı
+        dp.setValue(100)
+        dp.close()
+
+        # 13) Sahneyi güncelle: orijinal mesh'i çıkar, yenilerini ekle
         self.meshes.remove(orig)
         self.meshes.extend([mk, mc])
         self.selected_mesh = None
 
-        # 10) refresh UI
+        # 14) UI olaylarını tetikle ve yeniden çiz
         self.scene_changed.emit()
         self.selection_changed.emit(-1)
         self.update()
@@ -727,11 +915,3 @@ class Cube3DWidget(QOpenGLWidget):
         for m in self.meshes:
             print("   id:", m.id, "name:", getattr(m, "name", "none"))
 
-    def _screen_to_world(self, px, py, proj_inv, view_inv):
-        ndc = np.array([2 * px / self.width() - 1,
-                        1 - 2 * py / self.height(),
-                        -1, 1], np.float32)
-        eye = proj_inv @ ndc
-        eye /= eye[3]
-        world = view_inv @ eye
-        return world[:3]
