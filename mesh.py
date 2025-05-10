@@ -58,51 +58,102 @@ class Mesh:
 
     def cut_by_plane(self, n: np.ndarray, d: float) -> bool:
         """
-        n·p + d = 0 düzleminin n·p + d < 0 tarafını SİLER.
-        Üçgenin tüm verteksi kesim tarafındaysa yüzey atılır.
-        Dönüş: Mesh boş kalırsa False (sahneden atılmalı).
+        n·p + d = 0 düzlemi ile gerçek split:
+         - self.vertices / self.colors üzerinden Sutherland–Hodgman ile klipleme yapar
+         - üçgenleri bölüp her yarıda kendi poligonlarını korur
+         - yüzeyi kapatma (open cut), ancak parçalar shape kaybı yaşamaz
+        Dönüş: eğer bu yarıda hiç yüzey kalmadıysa False, yoksa True.
         """
-        # 1) World-space’e dönüştürülmüş vertex’ler
+
+        # 1) Lokal uzayda klip için düzlemi dönüştür
+        #    world = R @ local + t, R = scale·rotation
         R = self.rotation[:3, :3] * self.scale
-        verts_w = (R @ self.vertices.T).T + self.translation
+        n_local = R.T @ n
+        d_local = d + n.dot(self.translation)
 
-        # 2) Her vertex’in düzleme göre işareti
-        sign = verts_w @ n + d  # (N,)
-        keep_mask = sign >= 0  # True → bu vertex kalacak
+        verts = self.vertices
+        cols  = self.colors if hasattr(self, 'colors') else None
+        faces = self.indices.reshape(-1, 3)
 
-        # 3) Üçgenleri (faces) ayıkla
-        faces = self.indices.reshape(-1, 3)  # (M,3)
-        keep_faces = keep_mask[faces].all(axis=1)  # (M,)
-        if not keep_faces.any():
-            return False  # Tüm mesh siliniyor
+        new_verts = []
+        new_cols  = [] if cols is not None else None
+        new_faces = []
 
-        kept = faces[keep_faces]  # (K,3)
+        # yardımcı: bir poligonu yarıya kliple
+        def clip_polygon(poly_pts, poly_cols, signs, keep_positive):
+            out_pts, out_cols = [], [] if poly_cols is not None else None
+            L = len(poly_pts)
+            for i in range(L):
+                j = (i + 1) % L
+                P, Q = poly_pts[i], poly_pts[j]
+                sP, sQ = signs[i], signs[j]
+                cP = poly_cols[i] if poly_cols is not None else None
 
-        # 4) Sadece kullanılan vertex indekslerini bulup tekilleştir
-        flat_idxs, inv_map = np.unique(kept.flatten(), return_inverse=True)
+                insideP = (sP >= 0) if keep_positive else (sP <= 0)
+                insideQ = (sQ >= 0) if keep_positive else (sQ <= 0)
 
-        # 5) Yeni vertex ve index dizilerini oluştur
-        new_vertices = self.vertices[flat_idxs]  # (V',3)
-        new_indices = inv_map.reshape(-1, 3).astype(np.uint32)  # (K,3)
-        new_indices = new_indices.flatten()  # (K*3,)
+                # 1) eğer P içerdeyse, kaydet
+                if insideP:
+                    out_pts.append(P)
+                    if poly_cols is not None: out_cols.append(cP)
 
-        # 6) Mesh verisini güncelle
-        self.vertices = new_vertices
-        self.indices = new_indices
-        self.index_count = new_indices.size
+                # 2) kenar kesişiyorsa, kesişim noktasını ekle
+                if insideP != insideQ:
+                    t = sP / (sP - sQ)
+                    X = P + (Q - P) * t
+                    out_pts.append(X)
+                    if poly_cols is not None:
+                        cQ = poly_cols[j]
+                        out_cols.append(cP + (cQ - cP) * t)
 
-        # 7) GPU buffer’larını yenile
-        #    vertex buffer
+            return out_pts, out_cols
+
+        # her üçgeni ayrıştır
+        for f in faces:
+            p = [verts[i] for i in f]
+            c = [cols[i] for i in f] if cols is not None else None
+            s = [float(n_local.dot(pi) + d_local) for pi in p]
+
+            # pozitif yarı (n·p + d >= 0)
+            poly_pos, col_pos = clip_polygon(p, c, s, True)
+            # negatif yarı
+            poly_neg, col_neg = clip_polygon(p, c, s, False)
+
+            # triangulate ve ekle
+            def emit(poly, colpoly):
+                if len(poly) < 3: return
+                # v0, v1, v2... fan triangulation
+                base = len(new_verts)
+                for pt in poly:
+                    new_verts.append(pt)
+                    if new_cols is not None: new_cols.append(colpoly.pop(0))
+                for k in range(1, len(poly) - 1):
+                    new_faces.append([base, base + k, base + k + 1])
+
+            # bu mesh.method çağrısı pozitif tarafı tutacağı için sadece pos ekle
+            emit(poly_pos, col_pos)
+
+        if not new_faces:
+            return False
+
+        # flatten ve yeniden atama
+        new_verts = np.array(new_verts, np.float32)
+        new_idx   = np.array(new_faces, np.uint32).flatten()
+        self.vertices   = new_verts
+        self.indices    = new_idx
+        self.index_count = new_idx.size
+
+        # renk varsa güncelle
+        if cols is not None:
+            self.colors = np.array(new_cols, np.float32)
+
+        # GPU buffer’larını yenile
         glBindBuffer(GL_ARRAY_BUFFER, self.vbo_v)
-        glBufferData(GL_ARRAY_BUFFER,
-                     self.vertices.nbytes,
-                     self.vertices,
-                     GL_STATIC_DRAW)
-        #    index buffer
+        glBufferData(GL_ARRAY_BUFFER, self.vertices.nbytes, self.vertices, GL_STATIC_DRAW)
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self.vbo_i)
-        glBufferData(GL_ELEMENT_ARRAY_BUFFER,
-                     self.indices.nbytes,
-                     self.indices,
-                     GL_STATIC_DRAW)
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, self.indices.nbytes, self.indices, GL_STATIC_DRAW)
+        if getattr(self, 'vbo_c', None) and cols is not None:
+            glBindBuffer(GL_ARRAY_BUFFER, self.vbo_c)
+            glBufferData(GL_ARRAY_BUFFER, self.colors.nbytes, self.colors, GL_STATIC_DRAW)
 
         return True

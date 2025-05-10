@@ -456,46 +456,64 @@ class Cube3DWidget(QOpenGLWidget):
         # diğer release olayları
         self.last_mouse_position = None
     def screen_to_world(self, sx, sy, proj_inv, view_inv):
-        # Convert from Qt (0,0 top-left) to OpenGL (0,0 bottom-left)
-        h = self.height()
-        y_gl = h - sy
+        """
+        Convert 2D widget coords (sx,sy) into a world‐space point on the near plane.
+        We add a 0.5 offset so that we unproject from the pixel center, which
+        makes the cut plane align exactly with the red guide line.
+        """
+        w, h = self.width(), self.height()
 
-        # NDC coords
-        x_ndc =  2.0 * sx / self.width()  - 1.0
-        y_ndc =  2.0 * y_gl / h           - 1.0
-        z_ndc = -1.0   # near plane in GL NDC
+        # pixel‐center correction
+        x_ndc =  2.0 * (sx + 0.5) / w - 1.0
+        y_ndc =  1.0 - 2.0 * (sy + 0.5) / h
+        z_ndc = -1.0   # near plane
 
         ndc = np.array([x_ndc, y_ndc, z_ndc, 1.0], dtype=np.float64)
+
         # eye‐space
         eye = proj_inv @ ndc
         eye /= eye[3]
+
         # world‐space
         world = view_inv @ eye
         world /= world[3]
+
         return world[:3]
+
     def _perform_cut(self):
         # 1) must have start/end and a mesh
         if not (self.cut_start_pos and self.cut_end_pos and self.selected_mesh):
             return
+
         # 2) save for undo
         self.save_state()
 
-        # 3) fetch & invert current GL matrices
-        proj  = glGetDoublev(GL_PROJECTION_MATRIX)
+        # 2.5) ensure projection & modelview match what paintGL would have set,
+        #      even if paintGL hasn't run since the last user rotation/zoom.
+        #      _update_projection sets the GL_PROJECTION matrix and
+        #      switches back to GL_MODELVIEW.
+        self._update_projection()
+        glMatrixMode(GL_MODELVIEW)
+        glLoadIdentity()
+        glTranslatef(self.x_translation, self.y_translation, self.zoom)
+        glMultMatrixf(self.rotation_matrix.flatten('F'))
+
+        # 3) now fetch & invert current GL matrices
+        proj = glGetDoublev(GL_PROJECTION_MATRIX)
         model = glGetDoublev(GL_MODELVIEW_MATRIX)
-        P     = np.array(proj,  dtype=np.float64).reshape(4,4).T
-        V     = np.array(model, dtype=np.float64).reshape(4,4).T
+        P = np.array(proj, dtype=np.float64).reshape(4, 4).T
+        V = np.array(model, dtype=np.float64).reshape(4, 4).T
         proj_inv = np.linalg.inv(P)
         view_inv = np.linalg.inv(V)
 
-        # 4) unproject your two screen points
+        # 4) unproject your two screen points into world‐space rays
         sx, sy = self.cut_start_pos.x(), self.cut_start_pos.y()
-        ex, ey = self.cut_end_pos.x(),   self.cut_end_pos.y()
+        ex, ey = self.cut_end_pos.x(), self.cut_end_pos.y()
         ws = self.screen_to_world(sx, sy, proj_inv, view_inv)
         we = self.screen_to_world(ex, ey, proj_inv, view_inv)
 
         # 5) camera world‐position
-        cam_h   = view_inv @ np.array([0.0, 0.0, 0.0, 1.0], dtype=np.float64)
+        cam_h = view_inv @ np.array([0.0, 0.0, 0.0, 1.0], dtype=np.float64)
         cam_pos = cam_h[:3] / cam_h[3]
 
         # 6) build plane from the two rays (camera→ws) and (camera→we)
@@ -508,58 +526,41 @@ class Cube3DWidget(QOpenGLWidget):
         normal /= nrm
         d = -normal.dot(cam_pos)
 
-        # 7) copy your mesh data
-        orig      = self.selected_mesh
-        verts     = orig.vertices.copy()
-        inds      = orig.indices.copy()
+        # 7) copy & cut the mesh
+        orig = self.selected_mesh
+        verts = orig.vertices.copy()
+        inds = orig.indices.copy()
         orig_cols = getattr(orig, 'colors', None)
 
-        # 8) make two new Mesh’es (“keep” + “cut”)
-        mk = Mesh(verts, inds,
-                  colors=orig_cols,
-                  color=orig.color,
-                  mesh_name=orig.name + "_keep")
-        mc = Mesh(verts, inds,
-                  colors=orig_cols,
-                  color=orig.color,
-                  mesh_name=orig.name + "_cut")
+        mk = Mesh(verts, inds, colors=orig_cols, color=orig.color, mesh_name=orig.name + "_keep")
+        mc = Mesh(verts, inds, colors=orig_cols, color=orig.color, mesh_name=orig.name + "_cut")
 
-        # 9) reupload VBO colors if any
+        # preserve transforms & reupload colors
+        mk.id, mc.id = orig.id, self.next_color_id;
+        self.next_color_id += 1
+        for m in (mk, mc):
+            m.translation = orig.translation.copy()
+            m.rotation = orig.rotation.copy()
+            m.scale = orig.scale
+            m.transparent = orig.transparent
         if orig_cols is not None:
             glBindBuffer(GL_ARRAY_BUFFER, mk.vbo_c)
-            glBufferData(GL_ARRAY_BUFFER,
-                         orig_cols.nbytes,
-                         orig_cols,
-                         GL_STATIC_DRAW)
+            glBufferData(GL_ARRAY_BUFFER, orig_cols.nbytes, orig_cols, GL_STATIC_DRAW)
 
-        # 10) preserve id, transform & material
-        mk.id           = orig.id
-        mk.translation  = orig.translation.copy()
-        mk.rotation     = orig.rotation.copy()
-        mk.scale        = orig.scale
-        mk.color        = orig.color
-        mk.transparent  = orig.transparent
-
-        mc.id            = self.next_color_id;  self.next_color_id += 1
-        mc.translation   = orig.translation.copy()
-        mc.rotation      = orig.rotation.copy()
-        mc.scale         = orig.scale
-        mc.color         = orig.color
-        mc.transparent   = orig.transparent
-
-        # 11) finally cut
-        mk.cut_by_plane( normal,  d)
+        # 8) do the split
+        mk.cut_by_plane(normal, d)
         mc.cut_by_plane(-normal, -d)
 
-        # 12) swap them into your scene
+        # 9) swap into scene
         self.meshes.remove(orig)
         self.meshes.extend([mk, mc])
         self.selected_mesh = None
 
-        # 13) UI refresh
+        # 10) refresh UI
         self.scene_changed.emit()
         self.selection_changed.emit(-1)
         self.update()
+
     def wheelEvent(self, e):
         delta = e.angleDelta().y()
         if delta:
