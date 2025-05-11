@@ -33,8 +33,10 @@ def export_mesh(mesh: Mesh, filepath: str) -> None:
 
 
 class MainWindow(QMainWindow):
+    BASE_TITLE = "3D Studio"
     def __init__(self):
         super().__init__()
+        self.setWindowTitle(self.BASE_TITLE)
         self.setWindowTitle("3D Görüntüleme")
         self.resize(800, 600)
 
@@ -239,13 +241,15 @@ class MainWindow(QMainWindow):
             export_mesh(mesh, os.path.join(proj_dir, f"{mesh.name}.obj"))
 
         self.write_scene_manifest()
+        self.setWindowTitle(f"3D Studio – {name}")
         QMessageBox.information(self, "Yeni Proje", f"Proje oluşturuldu: {proj_dir}")
+        self.main_screen.notes_panel.text.clear()
 
     def write_scene_manifest(self):
         """Mevcut sahnedeki tüm mesh'leri OBJ ve scene.json olarak kaydeder."""
         if not self.project_dir:
             return
-        manifest = {"meshes": []}
+        manifest = {"meshes": [],"notes": self.main_screen.notes_panel.text.toPlainText()}
         for m in self.cube_widget.meshes:
             filepath = os.path.join(self.project_dir, f"{m.name}.obj")
             export_mesh(m, filepath)
@@ -264,19 +268,20 @@ class MainWindow(QMainWindow):
                     "transparent": m.transparent
                 },
                 "colors": colors
+
             })
 
         with open(os.path.join(self.project_dir, "scene.json"), "w") as f:
             json.dump(manifest, f, indent=2)
 
     def save_project(self):
-        """Projeyi kaydet (OBJ + manifest)."""
         if not self.project_dir:
             QMessageBox.warning(self, "Hata", "Önce proje oluşturun veya açın.")
             return
         self.write_scene_manifest()
+        # name → self.current_project
+        self.setWindowTitle(f"{self.BASE_TITLE} – {self.current_project}")
         QMessageBox.information(self, "Kaydedildi", "Proje kaydedildi.")
-
     def open_project(self):
         """Var olan projeyi aç ve sahneyi yükle."""
         proj_dir = QFileDialog.getExistingDirectory(
@@ -291,6 +296,10 @@ class MainWindow(QMainWindow):
 
         with open(scene_path, "r") as f:
             manifest = json.load(f)
+        notes_edit = self.main_screen.notes_panel.text  # QTextEdit nesnesi
+        notes_edit.blockSignals(True)
+        notes_edit.setPlainText(manifest.get("notes", ""))
+        notes_edit.blockSignals(False)
 
         self.stack.setCurrentIndex(1)
         self.cube_widget.meshes.clear()
@@ -324,6 +333,8 @@ class MainWindow(QMainWindow):
         self.project_dir     = proj_dir
         self.current_project = os.path.basename(proj_dir)
         self.cube_widget.scene_changed.emit()
+        proj_name = os.path.basename(proj_dir)
+        self.setWindowTitle(f"3D Studio – {proj_name}")
         QMessageBox.information(self, "Proje Açıldı",
                                 f"{self.current_project} yüklendi.")
 
@@ -336,8 +347,10 @@ class MainWindow(QMainWindow):
         self.stack.setCurrentIndex(0)
         self.cube_widget.meshes.clear()
         self.cube_widget.selected_mesh = None
+        self.setWindowTitle(self.BASE_TITLE)
         QMessageBox.information(self, "Proje Kapatıldı",
                                 "Mevcut proje kaydedilmeden kapatıldı.")
+        self.main_screen.notes_panel.text.clear()
 
     def change_theme(self):
         """Tema rengini QColorDialog ile seç ve uygulama stilini güncelle."""

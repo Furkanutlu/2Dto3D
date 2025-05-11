@@ -17,7 +17,7 @@ class ObjectPanel(QWidget):
 
         # başlık (tıklanarak aç/kapa)
         self.title = QLabel("▾ Objeler")
-        self.title.setAlignment(Qt.AlignCenter)
+        self.title.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         self.title.setStyleSheet("background:#dddddd;font-weight:bold;")
         self.title.mousePressEvent = self._toggle
 
@@ -39,10 +39,19 @@ class ObjectPanel(QWidget):
 
     # ------------------------------------------------------------
     def _toggle(self, *_):
+        """Paneli aç / kapa: içerik gizle + yükseklik ayarı."""
         self._collapsed = not self._collapsed
         self.list.setVisible(not self._collapsed)
         self.title.setText(("▾ " if not self._collapsed else "▸ ") + "Objeler")
 
+        if self._collapsed:                                 # yalnızca başlık kadar yüksek
+            self.setMaximumHeight(self.title.sizeHint().height())
+            self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Minimum)
+        else:                                               # serbestçe uzasın
+            self.setMaximumHeight(16777215)                 # Qt “sonsuz” değeri
+            self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
+
+        self.parent().updateGeometry()
     # ------------------------------------------------------------
     def _refresh(self):
         """Sahnedeki Mesh’leri listeye yeniden doldurur."""

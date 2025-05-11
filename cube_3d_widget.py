@@ -112,6 +112,7 @@ class Cube3DWidget(QOpenGLWidget):
         """
         assert mode in ('all', 'xy', 'xz', 'yz'), f"Unknown grid_mode: {mode}"
         self.grid_mode = mode
+        self.grid_visible = True
         self.update()
 
     def set_grid_spacing(self, spacing: float):
@@ -313,9 +314,27 @@ class Cube3DWidget(QOpenGLWidget):
 
         # ---------- model dönüşümleri ----------
         glPushMatrix()
+
+        # 1) Konum
         glTranslatef(*m.translation)
-        glScalef(m.scale, m.scale, m.scale)
-        glMultMatrixf(m.rotation.flatten('F'))
+
+        # 2) Ölçek (tek sayı veya 3-lü)
+        if isinstance(m.scale, (list, tuple, np.ndarray)):
+            sx, sy, sz = m.scale
+        else:
+            sx = sy = sz = float(m.scale)
+        glScalef(sx, sy, sz)
+
+        # 3) Rotasyon matrisi (daima 4 × 4 gönder)
+        R = np.asarray(m.rotation, dtype=np.float32)
+
+        if R.shape == (3, 3):  # 3×3 → 4×4 yükselt
+            M = np.identity(4, np.float32)
+            M[:3, :3] = R
+        else:
+            M = R.reshape(4, 4)  # zaten 4×4 ise
+
+        glMultMatrixf(M.flatten('F'))
 
         # ---------- shader / sabit pip. ----------
         if id_color is None and self.use_shader:
@@ -356,7 +375,7 @@ class Cube3DWidget(QOpenGLWidget):
     def _highlight(self, m):
         glDisable(GL_LIGHTING)
         glColor3f(0, 0, 0)
-        glLineWidth(2)
+        glLineWidth(0.5)
         glPolygonMode(GL_FRONT_AND_BACK, GL_LINE)
         self._draw_mesh(m)
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
@@ -374,7 +393,7 @@ class Cube3DWidget(QOpenGLWidget):
         glLoadIdentity()
         glDisable(GL_DEPTH_TEST)
         glColor3f(1, 0, 0)
-        glLineWidth(2)
+        glLineWidth(0.5)
         glBegin(GL_LINES)
         glVertex2f(self.cut_start_pos.x(), self.cut_start_pos.y())
         glVertex2f(self.cut_end_pos.x(), self.cut_end_pos.y())
