@@ -20,6 +20,7 @@ from main_screen import MainScreen
 from PyQt5.QtWidgets import QToolTip
 from PyQt5.QtGui     import QCursor
 
+
 def export_mesh(mesh: Mesh, filepath: str) -> None:
     """
     Basit OBJ exporter: mesh.vertices ve mesh.indices kullanarak OBJ dosyası oluşturur.

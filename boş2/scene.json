@@ -1,4 +1,99 @@
 {
-  "meshes": [],
-  "notes": "sjsj"
+  "meshes": [
+    {
+      "name": "house.obj_walls",
+      "file": "house.obj_walls.obj",
+      "transform": {
+        "pos": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rot": [
+          [
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            1.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            1.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "scale": 1.0
+      },
+      "material": {
+        "color": [
+          0.8,
+          0.6,
+          0.2
+        ],
+        "transparent": false
+      },
+      "colors": null
+    },
+    {
+      "name": "house.obj_roof",
+      "file": "house.obj_roof.obj",
+      "transform": {
+        "pos": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rot": [
+          [
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            1.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            1.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "scale": 1.0
+      },
+      "material": {
+        "color": [
+          0.8,
+          0.1,
+          0.1
+        ],
+        "transparent": false
+      },
+      "colors": null
+    }
+  ],
+  "notes": "loool"
 }

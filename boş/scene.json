@@ -1,4 +1,52 @@
 {
-  "meshes": [],
+  "meshes": [
+    {
+      "name": "house.obj",
+      "file": "house.obj.obj",
+      "transform": {
+        "pos": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rot": [
+          [
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            1.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            1.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "scale": 1.0
+      },
+      "material": {
+        "color": [
+          0.1,
+          0.8,
+          0.3
+        ],
+        "transparent": false
+      },
+      "colors": null
+    }
+  ],
   "notes": "sjsj"
 }

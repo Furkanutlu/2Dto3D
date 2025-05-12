@@ -79,12 +79,27 @@ class MainScreen(QWidget):
                     slider = QSlider(Qt.Horizontal);   slider.setFixedHeight(14)
                     spin   = QDoubleSpinBox()
                     if tip == "Rotate":
-                        slider.setRange(10, 500); factor = 100
-                        spin.setDecimals(2); spin.setRange(0.1, 5.0); spin.setSingleStep(0.05)
-                    else:  # Move / resize
-                        slider.setRange(1, 100);  factor = 1000
-                        spin.setDecimals(4); spin.setRange(0.0001, 0.1); spin.setSingleStep(0.0005)
+                        slider.setRange(1, 100)
+                        factor = 10
+                        spin.setDecimals(2)
+                        spin.setRange(1, 100)
+                        spin.setSingleStep(1)
 
+                        # ─── d kısmı: ilk değer eşitleme ───
+                        init = self.cube_widget.sens_rotate  # Cube3DWidget’teki mevcut değer
+                        slider.setValue(int(init * factor))  # slider konumu
+                        spin.setValue(init)  # spin-box sayısı
+                    else:  # Move / Resize / Zoom
+                        slider.setRange(1, 100)
+                        factor = 100
+                        spin.setDecimals(3)
+                        spin.setRange(1, 100)
+                        spin.setSingleStep(1)
+
+                        # d kısmı
+                        init = self.cube_widget.sens_move
+                        slider.setValue(int(init * factor))
+                        spin.setValue(init)
                     # İki yönlü senkronizasyon
                     slider.valueChanged.connect(
                         lambda val, t=tip: self.set_tool_sensitivity(t, val / factor)

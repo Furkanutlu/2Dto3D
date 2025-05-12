@@ -9,7 +9,29 @@ import numpy as np, copy, math, os, sys     #  ← sys de eklendi
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import QProgressDialog
 from PyQt5.QtCore import Qt
+# cube_3d_widget.py – diğer import’ların yanına ekleyin
+from collections import defaultdict
 
+
+def _parse_mtl(mtl_path: str) -> dict[str, tuple[float, float, float]]:
+    """
+    .mtl dosyasındaki   newmtl <name> / Kd r g b   satırlarını     (0-1 veya 0-255)
+    okur ve  {name: (r,g,b)} sözlüğü döndürür.
+    """
+    if not os.path.isfile(mtl_path):
+        return {}
+
+    mats, current = {}, None
+    with open(mtl_path, "r", errors="ignore") as f:
+        for line in f:
+            if line.startswith("newmtl "):
+                current = line.split(maxsplit=1)[1].strip()
+            elif current and line.startswith("Kd "):
+                r, g, b = map(float, line.split()[1:4])
+                if max(r, g, b) > 1.0:  # 0-255 ise ölçekle
+                    r, g, b = r / 255.0, g / 255.0, b / 255.0
+                mats[current] = (r, g, b)
+    return mats
 class Cube3DWidget(QOpenGLWidget):
     scene_changed = pyqtSignal()  # objeler eklendi/silindi
     selection_changed = pyqtSignal(int)  # seçilen mesh id  (yoksa -1)
@@ -47,9 +69,9 @@ class Cube3DWidget(QOpenGLWidget):
         self.cut_end_pos = None
         self._dragging = False
         # hassasiyetler
-        self.sens_move = 0.01
-        self.sens_rotate = 1.0
-        self.sens_resize = 0.01
+        self.sens_move = 0.05 # 1 px → 0.05 birim
+        self.sens_rotate = 0.5 # 1 px → 0.5°
+        self.sens_resize = 0.05
         self.sens_zoom = self.sens_resize
         self.use_shader = False
         # camera konfigürasyonu projeye göre ayarlayın
@@ -62,32 +84,51 @@ class Cube3DWidget(QOpenGLWidget):
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
         glDisable(GL_CULL_FACE)
 
-        # --- shader derle ---
+        # ── Lambert aydınlatmalı shader ───────────────────────────────
         vsrc = """
         #version 120
         attribute vec3 a_pos;
         attribute vec3 a_col;
+        attribute vec3 a_nrm;
+
         uniform   mat4 u_mvp;
+        uniform   mat3 u_normalMat;
+        uniform   vec3 u_lightDir;
+
         varying   vec3 v_col;
+        varying   float v_lambert;
+
         void main(){
+            vec3 n = normalize(u_normalMat * a_nrm);
+            v_lambert = max(dot(n, u_lightDir), 0.0);
             v_col = a_col;
             gl_Position = u_mvp * vec4(a_pos,1.0);
-        }"""
+        }""";
+
         fsrc = """
         #version 120
-        varying vec3 v_col;
+        varying vec3  v_col;
+        varying float v_lambert;
+        uniform vec3  u_ambient;
+        uniform vec3  u_diffuse;
         void main(){
-            gl_FragColor = vec4(v_col,1.0);
-        }"""
+            vec3 c = v_col * (u_ambient + u_diffuse * v_lambert);
+            gl_FragColor = vec4(c,1.0);
+        }""";
+
         try:
             self.prog = build_program(vsrc, fsrc)
             self.u_mvp = glGetUniformLocation(self.prog, "u_mvp")
+            self.u_nmat = glGetUniformLocation(self.prog, "u_normalMat")
+            self.u_ldir = glGetUniformLocation(self.prog, "u_lightDir")
+            self.u_amb = glGetUniformLocation(self.prog, "u_ambient")
+            self.u_dif = glGetUniformLocation(self.prog, "u_diffuse")
             self.use_shader = True
         except RuntimeError as e:
             print("Shader derlenemedi, eski pipeline’a düşüldü:", e, file=sys.stderr)
             self.use_shader = False
 
-        # fixed-pipeline ışık yedeği
+        # ── Eski sabit-pipeline yedeği ────────────────────────────────
         if not self.use_shader:
             glEnable(GL_COLOR_MATERIAL)
             glEnable(GL_LIGHTING)
@@ -95,12 +136,12 @@ class Cube3DWidget(QOpenGLWidget):
             glLightfv(GL_LIGHT0, GL_POSITION, [4, 4, 10, 1])
             glLightfv(GL_LIGHT0, GL_AMBIENT, [0.2, 0.2, 0.2, 1])
             glLightfv(GL_LIGHT0, GL_DIFFUSE, [0.8, 0.8, 0.8, 1])
-
     def resizeGL(self, w, h):
         w = max(1, w)
         h = max(1, h)
         glViewport(0, 0, w, h)
         self._update_projection()  # <- her pencere yeniden çiziminde
+
 
     def set_grid_mode(self, mode: str):
         """
@@ -275,16 +316,29 @@ class Cube3DWidget(QOpenGLWidget):
         if not self.use_vao:
             m.vao = 0
             return
+
         vao = glGenVertexArrays(1)
         glBindVertexArray(vao)
+
+        # a_pos  (location 0)
         glBindBuffer(GL_ARRAY_BUFFER, m.vbo_v)
         glEnableVertexAttribArray(0)
         glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, None)
+
+        # a_col  (location 1, isteğe bağlı)
         if m.vbo_c:
             glBindBuffer(GL_ARRAY_BUFFER, m.vbo_c)
             glEnableVertexAttribArray(1)
             glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 0, None)
+
+        # a_nrm  (location 2)   ⬅ yeni
+        glBindBuffer(GL_ARRAY_BUFFER, m.vbo_n)
+        glEnableVertexAttribArray(2)
+        glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 0, None)
+
+        # indeksler
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m.vbo_i)
+
         glBindVertexArray(0)
         m.vao = vao
 
@@ -294,79 +348,84 @@ class Cube3DWidget(QOpenGLWidget):
 
         use_vao = self.use_vao and getattr(m, "vao", 0) and id_color is None
 
-        # ---------- tampon bağlama ----------
+        # ── tampon bağlama ────────────────────────────────────────────
         if use_vao:
             glBindVertexArray(m.vao)
         else:
+            # a_pos
             glBindBuffer(GL_ARRAY_BUFFER, m.vbo_v)
             glEnableVertexAttribArray(0)
             glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, None)
 
+            # a_col (yalnız seçim-renk veya vertex-renk varsa)
             if id_color is None and m.vbo_c:
-                # renk dizisi
                 glBindBuffer(GL_ARRAY_BUFFER, m.vbo_c)
                 glEnableVertexAttribArray(1)
                 glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 0, None)
             else:
                 glDisableVertexAttribArray(1)
 
+            # a_nrm (daima gerekli)
+            glBindBuffer(GL_ARRAY_BUFFER, m.vbo_n)
+            glEnableVertexAttribArray(2)
+            glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 0, None)
+
+            # indeks
             glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m.vbo_i)
 
-        # ---------- model dönüşümleri ----------
+        # ── model matrisleri ──────────────────────────────────────────
         glPushMatrix()
-
-        # 1) Konum
         glTranslatef(*m.translation)
-
-        # 2) Ölçek (tek sayı veya 3-lü)
-        if isinstance(m.scale, (list, tuple, np.ndarray)):
-            sx, sy, sz = m.scale
-        else:
-            sx = sy = sz = float(m.scale)
+        sx, sy, sz = (m.scale if isinstance(m.scale, (list, tuple, np.ndarray))
+                      else (m.scale,) * 3)
         glScalef(sx, sy, sz)
 
-        # 3) Rotasyon matrisi (daima 4 × 4 gönder)
-        R = np.asarray(m.rotation, dtype=np.float32)
-
-        if R.shape == (3, 3):  # 3×3 → 4×4 yükselt
-            M = np.identity(4, np.float32)
+        R = np.asarray(m.rotation, np.float32)
+        if R.shape == (3, 3):
+            M = np.identity(4, np.float32);
             M[:3, :3] = R
         else:
-            M = R.reshape(4, 4)  # zaten 4×4 ise
-
+            M = R.reshape(4, 4)
         glMultMatrixf(M.flatten('F'))
 
-        # ---------- shader / sabit pip. ----------
+        # ── shader / sabit pip. ───────────────────────────────────────
         if id_color is None and self.use_shader:
             glUseProgram(self.prog)
 
-            # --- doğru sütun-major MVP oluştur ---
+            # MVP
             mv = np.array(glGetFloatv(GL_MODELVIEW_MATRIX),
-                          dtype=np.float32).reshape(4, 4).T
+                          np.float32).reshape(4, 4).T
             pr = np.array(glGetFloatv(GL_PROJECTION_MATRIX),
-                          dtype=np.float32).reshape(4, 4).T
+                          np.float32).reshape(4, 4).T
             mvp = pr @ mv
             glUniformMatrix4fv(self.u_mvp, 1, GL_FALSE, mvp.T)
 
-            # Eğer mesh’te renk dizisi yoksa sabit renk ver
+            # normal matrisi (MV’nin üst-sol 3×3’ü)
+            glUniformMatrix3fv(self.u_nmat, 1, GL_FALSE, mv[:3, :3].T)
+
+            # ışık + malzeme
+            glUniform3f(self.u_ldir, 0.577, 0.577, 0.577)  # (1,1,1) normalleştirilmiş
+            glUniform3f(self.u_amb, 0.20, 0.20, 0.20)
+            glUniform3f(self.u_dif, 0.80, 0.80, 0.80)
+
+            # sabit renkli mesh için tek renk aktar
             if not m.vbo_c:
                 r, g, b = m.color
                 glDisableVertexAttribArray(1)
                 glVertexAttrib3f(1, r, g, b)
-
         else:
             glUseProgram(0)
-            if id_color:
+            if id_color:  # seçim modu
                 glDisableVertexAttribArray(1)
-                glColor3f(*id_color)  # seçim tek renk
-            elif not m.vbo_c:  # sabit renkli mesh
-                alpha = 0.1 if m.transparent else 1.0
-                glColor4f(*m.color, alpha)
+                glColor3f(*id_color)
+            elif not m.vbo_c:  # sabit renkli görünüm
+                a = 0.1 if m.transparent else 1.0
+                glColor4f(*m.color, a)
 
-        # ---------- çizim ----------
+        # ── çizim ─────────────────────────────────────────────────────
         glDrawElements(GL_TRIANGLES, m.index_count, GL_UNSIGNED_INT, None)
 
-        # ---------- temizlik ----------
+        # ── temizlik ─────────────────────────────────────────────────
         glPopMatrix()
         if use_vao:
             glBindVertexArray(0)
@@ -500,38 +559,83 @@ class Cube3DWidget(QOpenGLWidget):
         self.selection_changed.emit(-1)  # <<< panel
         self.update()
 
-    def load_obj(self, fn):
-        """OBJ dosyasını okur, yeni Mesh oluşturur ve sahneye ekler."""
-        verts, faces, cols = [], [], []
-        with open(fn, 'r', errors='ignore') as f:
+    def load_obj(self, fn: str):
+        """
+        OBJ (+ varsa MTL) dosyasını okuyup:
+          • Her “usemtl” grubunu ayrı Mesh’e böler
+          • Tepe-başına renkler varsa korur,
+            yoksa MTL’deki Kd değerini veya varsayılan griyi kullanır.
+        """
+        import os
+        import numpy as np
+        from collections import defaultdict
+
+        # ---------- 1 · Ham veri kapları ----------
+        verts: list[list[float]] = []
+        vcols: list[list[float]] = []  # tepe renkleri (opsiyonel)
+
+        faces_by_mat: dict[str | None, list[list[int]]] = defaultdict(list)
+        current_mat: str | None = None  # aktif malzeme etiketi
+        materials: dict[str, tuple[float, float, float]] = {}
+
+        # ---------- 2 · Dosya satır satır ----------
+        with open(fn, "r", errors="ignore") as f:
             for line in f:
-                if line.startswith('v '):
-                    vals = list(map(float, line.split()[1:]))
-                    verts.append(vals[:3])
-                    if len(vals) >= 6:
-                        cols.append(vals[3:6])
-                elif line.startswith('f '):
-                    idx = [int(p.split('/')[0]) - 1 for p in line.split()[1:]]
-                    if len(idx) >= 3:
-                        for i in range(1, len(idx) - 1):
-                            faces.append([idx[0], idx[i], idx[i + 1]])
+                if line.startswith("mtllib"):  # .mtl bağlantısı
+                    mtl_path = os.path.join(os.path.dirname(fn), line.split()[1])
+                    materials = _parse_mtl(
+                        mtl_path)  # :contentReference[oaicite:2]{index=2}:contentReference[oaicite:3]{index=3}
+                elif line.startswith("usemtl"):
+                    current_mat = line.split()[1]
+                elif line.startswith("v "):  # v x y z (r g b)?
+                    parts = list(map(float, line.split()[1:]))
+                    verts.append(parts[:3])
+                    if len(parts) >= 6:  # r g b geldi
+                        vcols.append(parts[3:6])
+                elif line.startswith("f "):  # f v/...
+                    idx = [int(tok.split("/")[0]) - 1 for tok in line.split()[1:]]
+                    # üçgen fanına aç
+                    for i in range(1, len(idx) - 1):
+                        faces_by_mat[current_mat].append([idx[0], idx[i], idx[i + 1]])
 
-        if not verts or not faces:
-            return                                          # geçersiz dosya
+        # --------- 3 · Geçerlilik testleri ---------
+        if not verts or not any(faces_by_mat.values()):
+            return  # boş/bozuk dosya
 
-        verts  = np.asarray(verts,  np.float32)
-        faces  = np.asarray(faces,  np.uint32).flatten()
-        verts -= verts.mean(axis=0)
-        colors = np.asarray(cols, np.float32) if cols else None
+        # ---------- 4 · Ortak diziler ----------
+        v_arr = np.asarray(verts, np.float32)
+        v_arr -= v_arr.mean(axis=0)  # merkeze taşı
+        c_arr = np.asarray(vcols, np.float32) if vcols else None
 
+        # ---------- 5 · Mesh yarat ve sahneye ekle ----------
         self.save_state()
-        mesh         = Mesh(verts, faces, colors, mesh_name=os.path.basename(fn))
-        mesh.id      = self.next_color_id
-        self.next_color_id += 1
-        self.meshes.append(mesh)
+        for mat_name, face_list in faces_by_mat.items():
+            if not face_list:
+                continue
+            f_arr = np.asarray(face_list, np.uint32).flatten()
 
-        self.scene_changed.emit()                           #  <<< panel
+            # — Renk kararı: vertex-color yoksa MTL’deki Kd veya varsayılan gri
+            if c_arr is None:
+                mesh_color = materials.get(mat_name, (0.8, 0.8, 0.8))
+                per_vertex = None
+            else:
+                mesh_color = (0.8, 0.8, 0.8)  # kullanılmayacak
+                per_vertex = c_arr
+
+            mesh = Mesh(
+                v_arr, f_arr,
+                colors=per_vertex,
+                color=mesh_color,
+                mesh_name=f"{os.path.basename(fn)}_{mat_name or 'default'}"
+            )
+            mesh.id = self.next_color_id
+            self.next_color_id += 1
+            self.meshes.append(mesh)
+
+        # ---------- 6 · Bildirim & yeniden çiz ----------
+        self.scene_changed.emit()
         self.update()
+
     def set_background_color(self):
         self.save_state()
         c = QColorDialog.getColor()

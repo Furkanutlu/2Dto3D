@@ -1,0 +1,31 @@
+# Simple colored house
+mtllib house.mtl
+
+# Vertices
+v -1 0 -1
+v  1 0 -1
+v  1 0  1
+v -1 0  1
+v -1 1 -1
+v  1 1 -1
+v  1 1  1
+v -1 1  1
+v  0 1.5 0
+
+# Walls
+usemtl walls
+f 1 2 6
+f 1 6 5
+f 2 3 7
+f 2 7 6
+f 3 4 8
+f 3 8 7
+f 4 1 5
+f 4 5 8
+
+# Roof
+usemtl roof
+f 5 6 9
+f 6 7 9
+f 7 8 9
+f 8 5 9

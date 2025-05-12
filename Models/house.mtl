@@ -1,0 +1,6 @@
+# Materials for colored house
+newmtl walls
+Kd 0.80 0.60 0.20   # warm light brown
+
+newmtl roof
+Kd 0.80 0.10 0.10   # red roof
