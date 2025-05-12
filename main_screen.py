@@ -4,8 +4,9 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtGui import QIcon
 from PyQt5.QtCore import Qt
-from add_object_dialog import AddObjectDialog
 import os
+
+from add_object_dialog import AddObjectDialog
 from repeat_button import RepeatButton
 from object_panel import ObjectPanel
 from inspector_panel import InspectorPanel

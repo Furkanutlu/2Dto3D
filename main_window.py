@@ -13,6 +13,7 @@ from OpenGL.GL import (
     glGenBuffers, glBindBuffer, glBufferData,
     GL_ARRAY_BUFFER, GL_STATIC_DRAW
 )
+
 from mesh import Mesh
 from cube_3d_widget import Cube3DWidget
 from entry_screen import EntryScreen
