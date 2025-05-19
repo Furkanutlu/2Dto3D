@@ -1,8 +1,8 @@
 {
   "meshes": [
     {
-      "name": "house.obj",
-      "file": "house.obj.obj",
+      "name": "FinalBaseMesh.obj_def",
+      "file": "FinalBaseMesh.obj_def.obj",
       "transform": {
         "pos": [
           0.0,
@@ -39,9 +39,9 @@
       },
       "material": {
         "color": [
-          0.1,
           0.8,
-          0.3
+          0.8,
+          0.8
         ],
         "transparent": false
       },

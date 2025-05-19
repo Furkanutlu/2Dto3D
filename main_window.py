@@ -236,6 +236,10 @@ class MainWindow(QMainWindow):
         self.stack.setCurrentIndex(1)
         self.cube_widget.meshes.clear()
         self.cube_widget.selected_mesh = None
+        # ① Arkaplan rengini varsayılana döndür
+        default_bg = (1.0, 1.0, 1.0, 1.0)
+        self.cube_widget.bg_color = default_bg
+        self.cube_widget.update()
         self.cube_widget.scene_changed.emit()
 
         if self.cube_widget.selected_mesh:
@@ -251,7 +255,7 @@ class MainWindow(QMainWindow):
         """Mevcut sahnedeki tüm mesh'leri OBJ ve scene.json olarak kaydeder."""
         if not self.project_dir:
             return
-        manifest = {"meshes": [],"notes": self.main_screen.notes_panel.text.toPlainText()}
+        manifest = {"meshes": [],"notes": self.main_screen.notes_panel.text.toPlainText(),"bg_color": list(self.cube_widget.bg_color)}
         for m in self.cube_widget.meshes:
             filepath = os.path.join(self.project_dir, f"{m.name}.obj")
             export_mesh(m, filepath)
@@ -302,7 +306,9 @@ class MainWindow(QMainWindow):
         notes_edit.blockSignals(True)
         notes_edit.setPlainText(manifest.get("notes", ""))
         notes_edit.blockSignals(False)
-
+        bg = manifest.get("bg_color", [1.0, 1.0, 1.0, 1.0])
+        self.cube_widget.bg_color = tuple(bg)
+        self.cube_widget.update()
         self.stack.setCurrentIndex(1)
         self.cube_widget.meshes.clear()
         self.cube_widget.selected_mesh = None

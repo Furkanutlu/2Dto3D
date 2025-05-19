@@ -164,6 +164,7 @@ class Cube3DWidget(QOpenGLWidget):
     def paintGL(self):
         # --- debug / kamera matrisi / temel temizlik -------------------
         self.debug_dump()
+        glClearColor(*self.bg_color)
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
         glLoadIdentity()
         glTranslatef(self.x_translation, self.y_translation, self.zoom)
@@ -697,7 +698,9 @@ class Cube3DWidget(QOpenGLWidget):
         c = QColorDialog.getColor()
         if c.isValid():
             self.bg_color = (c.redF(), c.greenF(), c.blueF(), 1)
+            self.makeCurrent()
             glClearColor(*self.bg_color)
+            self.doneCurrent()
             self.update()
 
     def delete_selected_object(self):
