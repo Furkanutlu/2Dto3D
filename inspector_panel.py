@@ -33,74 +33,76 @@ class InspectorPanel(QWidget):
     # ------------------------------------------------------------------
     def __init__(self, cube_widget: QWidget, parent: Optional[QWidget] = None):
         super().__init__(parent)
-        self.cube_widget = cube_widget      # expects .selected_mesh
-        self._collapsed   = False
+        self.cube_widget = cube_widget
+        self._collapsed = False
 
-        # Panel width & size policy ------------------------------------
+        # ------------------------------------------------ panel gövdesi
         self.setFixedWidth(180)
         self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
 
-        # ----- Layout scaffold ----------------------------------------
-        root = QVBoxLayout(self)
-        root.setContentsMargins(0, 0, 0, 0)
+        root = QVBoxLayout(self);
+        root.setContentsMargins(0, 0, 0, 0);
         root.setSpacing(0)
 
-        # Header (toggle)
         self.title = QLabel("▾ Inspector")
         self.title.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         self.title.setStyleSheet("background:#dddddd;font-weight:bold;padding:2px;")
-        self.title.mousePressEvent = self._toggle          # type: ignore
+        self.title.mousePressEvent = self._toggle  # type: ignore
         root.addWidget(self.title)
 
-        # Body — spin‑boxes
-        self.form_widget = QWidget();  root.addWidget(self.form_widget)
-        form = QFormLayout(self.form_widget)
-        form.setContentsMargins(4, 4, 4, 4)
+        # ---------- Form gövdesi --------------------------------------
+        self.form_widget = QWidget();
+        root.addWidget(self.form_widget)
+        form = QFormLayout(self.form_widget);
+        form.setContentsMargins(4, 4, 4, 4);
         form.setSpacing(2)
 
-        # Helper to build spin‑boxes
-        def _spin(tag: str, decimals: int, step: float) -> QDoubleSpinBox:
-            sb = QDoubleSpinBox()
-            sb.setDecimals(decimals)
+        # --- Triangle etiketi (YENİ) ----------------------------------
+        self.tri_label = QLabel("–")
+        form.addRow("Triangle (⊿):", self.tri_label)
+
+        # Helper → spin-box üretir
+        def _spin(tag: str, dec: int, step: float) -> QDoubleSpinBox:
+            sb = QDoubleSpinBox();
+            sb.setDecimals(dec);
             sb.setSingleStep(step)
-            sb.setRange(_BLANK, 1e9)
+            sb.setRange(_BLANK, 1e9);
             sb.setSpecialValueText("–")
             sb.setButtonSymbols(QDoubleSpinBox.UpDownArrows)
             sb.valueChanged.connect(lambda _v, t=tag, s=sb: self._value_changed(t, s))
             return sb
 
-        # Position
-        self.pos_x = _spin("pos_x", 3, 0.10)
-        self.pos_y = _spin("pos_y", 3, 0.10)
+        # Konum
+        self.pos_x = _spin("pos_x", 3, 0.10);
+        self.pos_y = _spin("pos_y", 3, 0.10);
         self.pos_z = _spin("pos_z", 3, 0.10)
-        # Rotation (deg)
-        self.rot_x = _spin("rot_x", 2, 1.0)
-        self.rot_y = _spin("rot_y", 2, 1.0)
+        # Rotasyon
+        self.rot_x = _spin("rot_x", 2, 1.0);
+        self.rot_y = _spin("rot_y", 2, 1.0);
         self.rot_z = _spin("rot_z", 2, 1.0)
-        # Scale
-        self.scl_x = _spin("scl_x", 3, 0.05)
-        self.scl_y = _spin("scl_y", 3, 0.05)
+        # Ölçek
+        self.scl_x = _spin("scl_x", 3, 0.05);
+        self.scl_y = _spin("scl_y", 3, 0.05);
         self.scl_z = _spin("scl_z", 3, 0.05)
 
         for label, widget in (
-            ("Konum X:", self.pos_x), ("Konum Y:", self.pos_y), ("Konum Z:", self.pos_z),
-            ("Rotasyon X:", self.rot_x), ("Rotasyon Y:", self.rot_y), ("Rotasyon Z:", self.rot_z),
-            ("Ölçek X:", self.scl_x), ("Ölçek Y:", self.scl_y), ("Ölçek Z:", self.scl_z),
+                ("Konum X:", self.pos_x), ("Konum Y:", self.pos_y), ("Konum Z:", self.pos_z),
+                ("Rotasyon X:", self.rot_x), ("Rotasyon Y:", self.rot_y), ("Rotasyon Z:", self.rot_z),
+                ("Ölçek X:", self.scl_x), ("Ölçek Y:", self.scl_y), ("Ölçek Z:", self.scl_z),
         ):
             form.addRow(label, widget)
 
-        # --- cube_widget sinyalleri ---
+        # --- CubeWidget sinyalleri -----------------------------------
         if hasattr(cube_widget, "selection_changed"):
-            cube_widget.selection_changed.connect(self._refresh)   # type: ignore
+            cube_widget.selection_changed.connect(self._refresh)  # type: ignore
         if hasattr(cube_widget, "scene_changed"):
-            cube_widget.scene_changed.connect(self._refresh)       # type: ignore
+            cube_widget.scene_changed.connect(self._refresh)  # type: ignore
 
-        # Periodic refresh (10 Hz) so external edits show up
-        self._timer = QTimer(self);  self._timer.timeout.connect(self._refresh)
+        # Periyodik tazeleme (10 Hz)
+        self._timer = QTimer(self);
+        self._timer.timeout.connect(self._refresh);
         self._timer.start(100)
-
         self._refresh()
-
     # ------------------------------------------------------------------
     # Collapse / expand
     # ------------------------------------------------------------------
@@ -180,49 +182,73 @@ class InspectorPanel(QWidget):
         mesh = getattr(self.cube_widget, "selected_mesh", None)
         has_sel = mesh is not None
 
-        # Enable / disable widgets
+        # ---------- Spin-box’ların enable durumu ----------------------
         for sp in (
-            self.pos_x, self.pos_y, self.pos_z,
-            self.rot_x, self.rot_y, self.rot_z,
-            self.scl_x, self.scl_y, self.scl_z,
-        ):
-            sp.setEnabled(has_sel)
-
-        # No selection → show “–”
-        if not has_sel:
-            for sp in (
                 self.pos_x, self.pos_y, self.pos_z,
                 self.rot_x, self.rot_y, self.rot_z,
                 self.scl_x, self.scl_y, self.scl_z,
+        ):
+            sp.setEnabled(has_sel)
+
+        # --------- Seçim yoksa tüm alanlara “–” -----------------------
+        if not has_sel:
+            self.tri_label.setText("–")  # ⊿ etiketi
+            for sp in (
+                    self.pos_x, self.pos_y, self.pos_z,
+                    self.rot_x, self.rot_y, self.rot_z,
+                    self.scl_x, self.scl_y, self.scl_z,
             ):
-                sp.blockSignals(True)
-                sp.setValue(_BLANK)
+                sp.blockSignals(True);
+                sp.setValue(_BLANK);
                 sp.blockSignals(False)
             return
 
-        # ---------- Position ----------
-        tr: Sequence[float] = getattr(mesh, "translation", (0.0, 0.0, 0.0))
-        for sp, val in zip((self.pos_x, self.pos_y, self.pos_z), tr):
-            sp.blockSignals(True); sp.setValue(val); sp.blockSignals(False)
+        # ---------- Seçim varsa değerleri oku ------------------------
+        verts = mesh.translation if hasattr(mesh, "translation") else (0, 0, 0)
+        scl = mesh.scale if hasattr(mesh, "scale") else 1.0
+        rot = mesh.rotation if hasattr(mesh, "rotation") else np.identity(4)
 
-        # ---------- Rotation ----------
-        R = np.array(getattr(mesh, "rotation", np.identity(3)))[:3, :3]
-        sy = np.sqrt(R[0, 0] ** 2 + R[1, 0] ** 2)
-        singular = sy < 1e-6
-        if not singular:
-            x = np.arctan2(R[2, 1], R[2, 2])
-            y = np.arctan2(-R[2, 0], sy)
-            z = np.arctan2(R[1, 0], R[0, 0])
+        # Üçgen sayısı = index_count // 3
+        tri_cnt = mesh.index_count // 3
+        self.tri_label.setText(f"{tri_cnt:,}")
+
+        # Pozisyon
+        self.pos_x.blockSignals(True);
+        self.pos_x.setValue(verts[0]);
+        self.pos_x.blockSignals(False)
+        self.pos_y.blockSignals(True);
+        self.pos_y.setValue(verts[1]);
+        self.pos_y.blockSignals(False)
+        self.pos_z.blockSignals(True);
+        self.pos_z.setValue(verts[2]);
+        self.pos_z.blockSignals(False)
+
+        # Ölçek
+        if isinstance(scl, (list, tuple, np.ndarray)):
+            sx, sy, sz = scl
         else:
-            x = np.arctan2(-R[1, 2], R[1, 1])
-            y = np.arctan2(-R[2, 0], sy)
-            z = 0.0
-        for sp, val in zip((self.rot_x, self.rot_y, self.rot_z), (x * _RAD2DEG, y * _RAD2DEG, z * _RAD2DEG)):
-            sp.blockSignals(True); sp.setValue(val); sp.blockSignals(False)
+            sx = sy = sz = scl
+        self.scl_x.blockSignals(True);
+        self.scl_x.setValue(sx);
+        self.scl_x.blockSignals(False)
+        self.scl_y.blockSignals(True);
+        self.scl_y.setValue(sy);
+        self.scl_y.blockSignals(False)
+        self.scl_z.blockSignals(True);
+        self.scl_z.setValue(sz);
+        self.scl_z.blockSignals(False)
 
-        # ---------- Scale ----------
-        sc = getattr(mesh, "scale", 1.0)
-        if not isinstance(sc, Sequence):
-            sc = (sc, sc, sc)
-        for sp, val in zip((self.scl_x, self.scl_y, self.scl_z), sc):
-            sp.blockSignals(True); sp.setValue(val); sp.blockSignals(False)
+        # Rotasyon (Euler, derece)
+        rx = np.arctan2(rot[2, 1], rot[2, 2]) * _RAD2DEG
+        ry = np.arcsin(-rot[2, 0]) * _RAD2DEG
+        rz = np.arctan2(rot[1, 0], rot[0, 0]) * _RAD2DEG
+        self.rot_x.blockSignals(True);
+        self.rot_x.setValue(rx);
+        self.rot_x.blockSignals(False)
+        self.rot_y.blockSignals(True);
+        self.rot_y.setValue(ry);
+        self.rot_y.blockSignals(False)
+        self.rot_z.blockSignals(True);
+        self.rot_z.setValue(rz);
+        self.rot_z.blockSignals(False)
+

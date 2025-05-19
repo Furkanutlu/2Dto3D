@@ -1,16 +1,12 @@
 from PyQt5.QtWidgets import QColorDialog, QOpenGLWidget
-from PyQt5.QtCore import Qt
 from OpenGL.GL import *
-from OpenGL.GLU import gluPerspective
 from mesh import Mesh
-from shader_utils import build_program   #  ← EKLE
+from shader_utils import build_program
 from OpenGL.GL import glGetDoublev, GL_PROJECTION_MATRIX, GL_MODELVIEW_MATRIX
-import numpy as np, copy, math, os, sys     #  ← sys de eklendi
+import numpy as np, copy, math, os, sys
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import QProgressDialog
-from PyQt5.QtCore import Qt
-# cube_3d_widget.py – diğer import’ların yanına ekleyin
-from collections import defaultdict
+from OpenGL.GLU import gluPerspective, gluProject
 
 
 def _parse_mtl(mtl_path: str) -> dict[str, tuple[float, float, float]]:
@@ -54,9 +50,9 @@ class Cube3DWidget(QOpenGLWidget):
         self.meshes = []
         self.selected_mesh = None
 
-        self.axis_visible = True
+        self.axis_visible = False
         self.axis_length = 5.0
-        self.grid_visible = True
+        self.grid_visible = False
 
         # grid_mode: 'all', 'xy', 'xz', 'yz'
         self.grid_mode = 'all'
@@ -73,9 +69,12 @@ class Cube3DWidget(QOpenGLWidget):
         self.sens_rotate = 0.5 # 1 px → 0.5°
         self.sens_resize = 0.05
         self.sens_zoom = self.sens_resize
+        self.erase_radius_px = 40
+        self.erase_cursor = None  # ekran pozisyonu (QPoint)
         self.use_shader = False
         # camera konfigürasyonu projeye göre ayarlayın
         self.camera = None
+        self.erase_dirty = False
 
     def initializeGL(self):
         glEnable(GL_DEPTH_TEST)
@@ -163,19 +162,20 @@ class Cube3DWidget(QOpenGLWidget):
         self.update()
 
     def paintGL(self):
+        # --- debug / kamera matrisi / temel temizlik -------------------
         self.debug_dump()
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
         glLoadIdentity()
         glTranslatef(self.x_translation, self.y_translation, self.zoom)
         glMultMatrixf(self.rotation_matrix.flatten('F'))
 
+        # --- IZGARA -----------------------------------------------------
         if self.grid_visible:
-            # 1) Shader’ı devre dışı bırak, ışığı kapat
             glUseProgram(0)
             glDisable(GL_LIGHTING)
             if self.grid_mode == 'all':
-                self._draw_grid_xy()
-                self._draw_grid_xz()
+                self._draw_grid_xy();
+                self._draw_grid_xz();
                 self._draw_grid_yz()
             elif self.grid_mode == 'xy':
                 self._draw_grid_xy()
@@ -183,33 +183,38 @@ class Cube3DWidget(QOpenGLWidget):
                 self._draw_grid_xz()
             elif self.grid_mode == 'yz':
                 self._draw_grid_yz()
-
             glEnable(GL_LIGHTING)
-            if self.use_shader:
-                glUseProgram(self.prog)
+            if self.use_shader: glUseProgram(self.prog)
+
+        # --- EKSEN ------------------------------------------------------
         if self.axis_visible:
-            # 1) turn off any shader and lighting so colors show up directly
-            glUseProgram(0)
+            glUseProgram(0);
             glDisable(GL_LIGHTING)
-
-            # 2) draw axes in fixed‐color mode
-            glLineWidth(0.5)
+            glLineWidth(0.5);
             self._draw_axis()
-
-            # 3) restore lighting + shader for the rest of the scene
             glEnable(GL_LIGHTING)
-            if self.use_shader:
-                glUseProgram(self.prog)
+            if self.use_shader: glUseProgram(self.prog)
 
-        for m in self.meshes:
-            self._draw_mesh(m)
+        # --- MESH’LER ---------------------------------------------------
+        for mesh in self.meshes:
+            self._draw_mesh(mesh)
+
+        # --- Seçili mesh vurgusu + kesme çizgisi ------------------------
         if self.selected_mesh:
             self._highlight(self.selected_mesh)
         self._draw_cut_line()
 
+        # --- ERASE overlay ---------------------------------------------
+        if self.mode == 'erase' and self.erase_cursor is not None:
+            self._draw_erase_circle()
+
     def set_axis_visible(self, visible: bool):
         """Eksen çizimini aç/kapa."""
         self.axis_visible = visible
+        self.update()
+
+    def set_erase_radius_px(self, px: float):
+        self.erase_radius_px = float(px)
         self.update()
 
     def set_grid_visible(self, visible: bool):
@@ -312,35 +317,33 @@ class Cube3DWidget(QOpenGLWidget):
             glVertex3f(0.0, cy+off, cz+half*s)
         glEnd()
 
-    def _create_vao(self, m):
-        if not self.use_vao:
-            m.vao = 0
+    def _create_vao(self, mesh):
+        """Bir Mesh için (henüz yoksa) VAO kurar ve öznitelikleri bağlar."""
+        if mesh.vao:
             return
+        mesh.vao = glGenVertexArrays(1)
+        glBindVertexArray(mesh.vao)
 
-        vao = glGenVertexArrays(1)
-        glBindVertexArray(vao)
-
-        # a_pos  (location 0)
-        glBindBuffer(GL_ARRAY_BUFFER, m.vbo_v)
+        # --- Pozisyon ---
+        glBindBuffer(GL_ARRAY_BUFFER, mesh.vbo_v)
         glEnableVertexAttribArray(0)
         glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, None)
 
-        # a_col  (location 1, isteğe bağlı)
-        if m.vbo_c:
-            glBindBuffer(GL_ARRAY_BUFFER, m.vbo_c)
+        # --- Renk (varsa) ---
+        if mesh.vbo_c:
+            glBindBuffer(GL_ARRAY_BUFFER, mesh.vbo_c)
             glEnableVertexAttribArray(1)
             glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 0, None)
 
-        # a_nrm  (location 2)   ⬅ yeni
-        glBindBuffer(GL_ARRAY_BUFFER, m.vbo_n)
+        # --- Normal ---
+        glBindBuffer(GL_ARRAY_BUFFER, mesh.vbo_n)
         glEnableVertexAttribArray(2)
         glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 0, None)
 
-        # indeksler
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m.vbo_i)
+        # --- Eleman dizisi ---
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh.vbo_i)
 
-        glBindVertexArray(0)
-        m.vao = vao
+        glBindVertexArray(0)  # temizle
 
     def _draw_mesh(self, m, id_color=None):
         if not hasattr(m, "vao"):
@@ -389,6 +392,7 @@ class Cube3DWidget(QOpenGLWidget):
         glMultMatrixf(M.flatten('F'))
 
         # ── shader / sabit pip. ───────────────────────────────────────
+        restore_attr1 = False
         if id_color is None and self.use_shader:
             glUseProgram(self.prog)
 
@@ -410,26 +414,29 @@ class Cube3DWidget(QOpenGLWidget):
 
             # sabit renkli mesh için tek renk aktar
             if not m.vbo_c:
-                r, g, b = m.color
                 glDisableVertexAttribArray(1)
-                glVertexAttrib3f(1, r, g, b)
+                glVertexAttrib3f(1, *m.color)
         else:
             glUseProgram(0)
             if id_color:  # seçim modu
                 glDisableVertexAttribArray(1)
-                glColor3f(*id_color)
-            elif not m.vbo_c:  # sabit renkli görünüm
-                a = 0.1 if m.transparent else 1.0
-                glColor4f(*m.color, a)
+                glVertexAttrib3f(1, *id_color)
+                if m.vbo_c:  # <<< mesh’te vertex renk VARDIysa sonra geri aç
+                    restore_attr1 = True  #
+            elif not m.vbo_c:
+                glDisableVertexAttribArray(1)
+                glColor4f(*m.color, 0.1 if m.transparent else 1.0)
 
         # ── çizim ─────────────────────────────────────────────────────
         glDrawElements(GL_TRIANGLES, m.index_count, GL_UNSIGNED_INT, None)
 
         # ── temizlik ─────────────────────────────────────────────────
-        glPopMatrix()
+        if use_vao and restore_attr1:  # +++ EKLENDİ +++
+            glEnableVertexAttribArray(1)  # attr-1’i tekrar aktif et
         if use_vao:
             glBindVertexArray(0)
         glUseProgram(0)
+        glPopMatrix()
 
     def _highlight(self, m):
         glDisable(GL_LIGHTING)
@@ -440,6 +447,46 @@ class Cube3DWidget(QOpenGLWidget):
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
         glEnable(GL_LIGHTING)
 
+    def _draw_erase_circle(self):
+        if self.erase_cursor is None:
+            return
+        cx, cy = self.erase_cursor.x(), self.height() - self.erase_cursor.y()
+        rad_px = self.erase_radius_px
+
+        glMatrixMode(GL_PROJECTION);
+        glPushMatrix();
+        glLoadIdentity()
+        glOrtho(0, self.width(), 0, self.height(), -1, 1)
+        glMatrixMode(GL_MODELVIEW);
+        glPushMatrix();
+        glLoadIdentity()
+
+        glDisable(GL_DEPTH_TEST)
+        glColor3f(0, 0, 0);
+        glLineWidth(1.0)
+        glBegin(GL_LINE_LOOP)
+        for i in range(64):
+            a = 2 * math.pi * i / 64
+            glVertex2f(cx + rad_px * math.cos(a),
+                       cy + rad_px * math.sin(a))
+        glEnd()
+        glEnable(GL_DEPTH_TEST)
+
+        glPopMatrix();
+        glMatrixMode(GL_PROJECTION);
+        glPopMatrix()
+        glMatrixMode(GL_MODELVIEW)
+
+    def _model_matrix(self, m):
+        S = np.diag([m.scale if np.isscalar(m.scale) else 1,
+                     m.scale if np.isscalar(m.scale) else 1,
+                     m.scale if np.isscalar(m.scale) else 1, 1]).astype(np.float32)
+        R = np.identity(4, np.float32)
+        R[:3, :3] = m.rotation if m.rotation.shape == (3, 3) \
+            else m.rotation.reshape(4, 4)[:3, :3]
+        T = np.identity(4, np.float32);
+        T[:3, 3] = m.translation
+        return T @ R @ S
     def _draw_cut_line(self):
         if not (self.cut_mode and self.cut_start_pos and self.cut_end_pos):
             return
@@ -476,29 +523,39 @@ class Cube3DWidget(QOpenGLWidget):
         self.redo_stack.clear()
 
     def load_state(self, s):
-        """Undo/redo için kaydedilmiş durumu geri yükler ve GPU tamponlarını günceller."""
+        """
+        Undo/redo için kaydedilmiş durumu geri yükler ve GPU tamponlarını günceller.
+        """
         # 1) Python-side kopyaları yükle
         self.meshes = copy.deepcopy(s['meshes'])
+
         # 2) GPU buffer’larını yeniden oluştur
         for m in self.meshes:
-            # Vertex positions
+            # Vertex pozisyonu
             glBindBuffer(GL_ARRAY_BUFFER, m.vbo_v)
             glBufferData(GL_ARRAY_BUFFER,
                          m.vertices.nbytes,
                          m.vertices,
                          GL_STATIC_DRAW)
-            # Indices
+            # İndeksler
             glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m.vbo_i)
             glBufferData(GL_ELEMENT_ARRAY_BUFFER,
                          m.indices.nbytes,
                          m.indices,
                          GL_STATIC_DRAW)
-            # Renk buffer’ı varsa (opsiyonel)
+            # Renk tamponu (varsa)
             if getattr(m, 'vbo_c', None):
                 glBindBuffer(GL_ARRAY_BUFFER, m.vbo_c)
                 glBufferData(GL_ARRAY_BUFFER,
                              m.colors.nbytes,
                              m.colors,
+                             GL_STATIC_DRAW)
+            # ── Normal tamponunu da mutlaka güncelle ──
+            if getattr(m, 'vbo_n', None):
+                glBindBuffer(GL_ARRAY_BUFFER, m.vbo_n)
+                glBufferData(GL_ARRAY_BUFFER,
+                             m.normals.nbytes,
+                             m.normals,
                              GL_STATIC_DRAW)
 
         # 3) Kamera & sahne durumunu yükle
@@ -509,10 +566,10 @@ class Cube3DWidget(QOpenGLWidget):
         # 4) Arkaplan rengi
         self.bg_color = s.get('bg_color', self.bg_color)
         glClearColor(*self.bg_color)
-        # 5) Seçili mesh’i geri yükle
+        # 5) Seçili mesh
         sid = s['selected_id']
         self.selected_mesh = next((m for m in self.meshes if m.id == sid), None)
-        # 6) Görünümü güncelle
+        # 6) Görünümü yenile
         self.update()
 
     def undo(self):
@@ -561,78 +618,77 @@ class Cube3DWidget(QOpenGLWidget):
 
     def load_obj(self, fn: str):
         """
-        OBJ (+ varsa MTL) dosyasını okuyup:
-          • Her “usemtl” grubunu ayrı Mesh’e böler
-          • Tepe-başına renkler varsa korur,
-            yoksa MTL’deki Kd değerini veya varsayılan griyi kullanır.
+        HIZLI OBJ yükleyici:
+          •   read() → tek pass; NumPy ile vertex/faces çıkarımı
+          •   “f” satırlarındaki n-gon’ları tek seferde üçgen fana açar
+          •   Vertex-renk yoksa MTL renklerini korur
         """
-        import os
-        import numpy as np
+        import re, numpy as np, os
         from collections import defaultdict
 
-        # ---------- 1 · Ham veri kapları ----------
-        verts: list[list[float]] = []
-        vcols: list[list[float]] = []  # tepe renkleri (opsiyonel)
+        txt = open(fn, "r", errors="ignore").read().splitlines()
 
-        faces_by_mat: dict[str | None, list[list[int]]] = defaultdict(list)
-        current_mat: str | None = None  # aktif malzeme etiketi
-        materials: dict[str, tuple[float, float, float]] = {}
+        v_lines = [l for l in txt if l.startswith("v ")]
+        f_lines = [l for l in txt if l.startswith("f ")]
+        usemtl = np.array([i for i, l in enumerate(txt) if l.startswith("usemtl")])
+        mtl_of_line = {}
+        for i in range(len(usemtl)):
+            start = usemtl[i]
+            end = usemtl[i + 1] if i + 1 < len(usemtl) else len(txt)
+            mat = txt[start].split()[1]
+            for ln in range(start + 1, end):
+                mtl_of_line[ln] = mat
 
-        # ---------- 2 · Dosya satır satır ----------
-        with open(fn, "r", errors="ignore") as f:
-            for line in f:
-                if line.startswith("mtllib"):  # .mtl bağlantısı
-                    mtl_path = os.path.join(os.path.dirname(fn), line.split()[1])
-                    materials = _parse_mtl(
-                        mtl_path)  # :contentReference[oaicite:2]{index=2}:contentReference[oaicite:3]{index=3}
-                elif line.startswith("usemtl"):
-                    current_mat = line.split()[1]
-                elif line.startswith("v "):  # v x y z (r g b)?
-                    parts = list(map(float, line.split()[1:]))
-                    verts.append(parts[:3])
-                    if len(parts) >= 6:  # r g b geldi
-                        vcols.append(parts[3:6])
-                elif line.startswith("f "):  # f v/...
-                    idx = [int(tok.split("/")[0]) - 1 for tok in line.split()[1:]]
-                    # üçgen fanına aç
-                    for i in range(1, len(idx) - 1):
-                        faces_by_mat[current_mat].append([idx[0], idx[i], idx[i + 1]])
+        # ---------- Vertex pozisyonları (r g b varsa al) ----------
+        verts = np.empty((len(v_lines), 3), np.float32)
+        vcols = np.empty((len(v_lines), 3), np.float32)
+        has_col = False
+        for i, l in enumerate(v_lines):
+            vals = list(map(float, l.split()[1:]))
+            verts[i] = vals[:3]
+            if len(vals) >= 6:
+                vcols[i] = vals[3:6]
+                has_col = True
+        c_arr = vcols if has_col else None
+        verts -= verts.mean(0)
 
-        # --------- 3 · Geçerlilik testleri ---------
-        if not verts or not any(faces_by_mat.values()):
-            return  # boş/bozuk dosya
-
-        # ---------- 4 · Ortak diziler ----------
-        v_arr = np.asarray(verts, np.float32)
-        v_arr -= v_arr.mean(axis=0)  # merkeze taşı
-        c_arr = np.asarray(vcols, np.float32) if vcols else None
-
-        # ---------- 5 · Mesh yarat ve sahneye ekle ----------
-        self.save_state()
-        for mat_name, face_list in faces_by_mat.items():
-            if not face_list:
+        # ---------- Faces → tek pass triangülasyon ----------
+        faces_by_mat = defaultdict(list)
+        tri_cnt = 0
+        for ln, l in enumerate(f_lines):
+            idx = [int(tok.split("/")[0]) - 1 for tok in l.split()[1:]]
+            if len(idx) < 3:
                 continue
-            f_arr = np.asarray(face_list, np.uint32).flatten()
+            # fan
+            base = idx[0]
+            tris = [[base, idx[i], idx[i + 1]] for i in range(1, len(idx) - 1)]
+            mat = mtl_of_line.get(ln, None)
+            faces_by_mat[mat].extend(tris)
+            tri_cnt += len(tris)
 
-            # — Renk kararı: vertex-color yoksa MTL’deki Kd veya varsayılan gri
-            if c_arr is None:
-                mesh_color = materials.get(mat_name, (0.8, 0.8, 0.8))
-                per_vertex = None
-            else:
-                mesh_color = (0.8, 0.8, 0.8)  # kullanılmayacak
-                per_vertex = c_arr
+        if not tri_cnt:
+            return  # boş
 
-            mesh = Mesh(
-                v_arr, f_arr,
-                colors=per_vertex,
-                color=mesh_color,
-                mesh_name=f"{os.path.basename(fn)}_{mat_name or 'default'}"
-            )
-            mesh.id = self.next_color_id
+        # ---------- .mtl renklerini yükle ----------
+        mtl_colors = {}
+        mtl_match = re.search(r"mtllib +(\S+)", "\n".join(txt))
+        if mtl_match:
+            mtl_path = os.path.join(os.path.dirname(fn), mtl_match.group(1))
+            mtl_colors = _parse_mtl(mtl_path)
+
+        # ---------- Mesh’leri oluştur ----------
+        self.save_state()
+        for mat, tris in faces_by_mat.items():
+            v_idx = np.array(tris, np.uint32).flatten()
+            col = mtl_colors.get(mat, (0.8, 0.8, 0.8))
+            m = Mesh(verts, v_idx,
+                     colors=c_arr if has_col else None,
+                     color=col,
+                     mesh_name=f"{os.path.basename(fn)}_{mat or 'def'}")
+            m.id = self.next_color_id;
             self.next_color_id += 1
-            self.meshes.append(mesh)
+            self.meshes.append(m)
 
-        # ---------- 6 · Bildirim & yeniden çiz ----------
         self.scene_changed.emit()
         self.update()
 
@@ -659,6 +715,8 @@ class Cube3DWidget(QOpenGLWidget):
         if mode == 'cut':
             self.cut_mode = True
             self.setCursor(Qt.CrossCursor)
+        elif mode == 'erase':
+            self.setCursor(Qt.PointingHandCursor)
         else:
             self.cut_mode = False
             self.setCursor(Qt.ArrowCursor)
@@ -667,77 +725,112 @@ class Cube3DWidget(QOpenGLWidget):
         if e.button() not in (Qt.LeftButton, Qt.RightButton):
             return
 
-        # normal drag flag’ini güncelle
         self._dragging = True
         self.last_mouse_position = e.pos()
 
-        # --- KESME KİPİNDE İLK TIK: başlangıç noktasını ve matrisleri ayıkla
+        # Cut modu başlangıcı
         if self.cut_mode and e.button() == Qt.LeftButton:
             self.cut_start_pos = e.pos()
-            self._dragging = False  # cut olarak handle et
+            self._dragging = False
             self.update()
             return
 
-        # --- NORMAL SOL TUŞ: seçim
+        if self.mode == 'erase' and e.button() == Qt.LeftButton:
+            # Sadece bayrak kaldırılıyor; save_state() buradan kaldırıldı.
+            if not self.erase_dirty:
+                self.save_state()  # ← silme öncesi state kaydı :contentReference[oaicite:0]{index=0}:contentReference[oaicite:1]{index=1}
+                self.erase_dirty = True
+            self.erase_cursor = e.pos()
+            self._erase_triangles()
+            self.update()
+            return
+
+        # Normal seçim
         if e.button() == Qt.LeftButton and self.mode is None:
             self.selected_mesh = self._pick(e.pos())
             self.update()
 
     def mouseMoveEvent(self, e):
+        # Cut çizgisi
         if self.cut_mode and self.cut_start_pos:
             self.cut_end_pos = e.pos()
             self.update()
             return
+
+        if self.mode == 'erase':
+            self.erase_cursor = e.pos()
+            if e.buttons() & Qt.LeftButton:
+                self._erase_triangles()
+            self.update()
+            return
+
         if self.last_mouse_position is None:
             return
+
         d = e.pos() - self.last_mouse_position
         shift = bool(e.modifiers() & Qt.ShiftModifier)
+
+        # -------- Seçili mesh varsa -----------------------------------
         if self.selected_mesh:
             if self.mode == 'move':
                 R = self.rotation_matrix[:3, :3]
-                if shift:
-                    cam_forward = R.T @ np.array([0, 0, -1], np.float32)
-                    self.selected_mesh.translation += cam_forward * (-d.y() * self.sens_move)
-                else:
-                    cam_right = R.T @ np.array([1, 0, 0], np.float32)
-                    cam_up = R.T @ np.array([0, 1, 0], np.float32)
-                    self.selected_mesh.translation += cam_right * (d.x() * self.sens_move) + cam_up * (-d.y() * self.sens_move)
+                if shift:  # ileri / geri
+                    cam_fwd = R.T @ np.array([0, 0, -1], np.float32)
+                    self.selected_mesh.translation += cam_fwd * (-d.y() * self.sens_move)
+                else:  # sağ / yukarı
+                    cam_r = R.T @ np.array([1, 0, 0], np.float32)
+                    cam_u = R.T @ np.array([0, 1, 0], np.float32)
+                    self.selected_mesh.translation += cam_r * (d.x() * self.sens_move) \
+                                                      + cam_u * (-d.y() * self.sens_move)
+
             elif self.mode == 'rotate':
                 ax, ay = d.y() * self.sens_rotate, d.x() * self.sens_rotate
                 R = self.rotation_matrix[:3, :3]
-                cam_right = R.T @ np.array([1, 0, 0], np.float32)
-                cam_up = R.T @ np.array([0, 1, 0], np.float32)
-                r_vert = self._rot_axis(ax, cam_right)
-                r_horz = self._rot_axis(ay, cam_up)
-                self.selected_mesh.rotation = r_horz @ r_vert @ self.selected_mesh.rotation
+                cam_r = R.T @ np.array([1, 0, 0], np.float32)
+                cam_u = R.T @ np.array([0, 1, 0], np.float32)
+                self.selected_mesh.rotation = self._rot_axis(ay, cam_u) @ \
+                                              self._rot_axis(ax, cam_r) @ \
+                                              self.selected_mesh.rotation
+
             elif self.mode == 'resize':
                 delta = d.y() * self.sens_resize
                 if delta:
                     self.selected_mesh.scale = max(self.selected_mesh.scale * (1 + delta), 0.1)
-            elif self.mode == 'transparency':
-                if d.x():
-                    self.selected_mesh.transparent = d.x() > 0
+
+        # -------- Seçili mesh yok -------------------------------------
         else:
             if self.mode == 'move':
-                if shift:
+                if shift:  # zoom
                     self.zoom += -d.y() * self.sens_zoom
-                else:
+                    self.zoom = max(min(self.zoom, -0.2), -500.0)
+                    self._update_projection()
+                else:  # pan
                     self.x_translation += d.x() * self.sens_move
                     self.y_translation += -d.y() * self.sens_move
+
             elif self.mode == 'rotate' and (e.buttons() & Qt.RightButton):
                 ax, ay = d.y() * self.sens_rotate, d.x() * self.sens_rotate
-                rx = self._rot(ax, 1, 0, 0)
-                ry = self._rot(ay, 0, 1, 0)
-                self.rotation_matrix = ry @ rx @ self.rotation_matrix
+                self.rotation_matrix = self._rot(ay, 0, 1, 0) @ \
+                                       self._rot(ax, 1, 0, 0) @ \
+                                       self.rotation_matrix
+
         self.last_mouse_position = e.pos()
         self.update()
 
+    def _inverse_mats(self):
+        proj = glGetDoublev(GL_PROJECTION_MATRIX)
+        view = glGetDoublev(GL_MODELVIEW_MATRIX)
+        return np.linalg.inv(np.array(proj).reshape(4, 4).T), \
+            np.linalg.inv(np.array(view).reshape(4, 4).T)
+
     def mouseReleaseEvent(self, e):
         # drag sonucu undo yalnızca cut_mod değilse kaydet
-        if self._dragging and not self.cut_mode:
-            self.save_state()
-        self._dragging = False
 
+        # Silgi modunda release anında undo kaydı almak için:
+        if self.mode == 'erase' and e.button() == Qt.LeftButton and self.erase_dirty:
+            self.save_state()  # değişiklik: silme sonrası undo için durum kaydı
+            self.erase_dirty = False  # bayrak sıfırlanıyor
+            return
         # --- KESME KİPİNDE SOL TUŞA BIRAKMA: düzlemi uygula
         if e.button() == Qt.LeftButton and self.cut_mode and self.cut_start_pos:
             self.cut_end_pos = e.pos()
@@ -749,7 +842,93 @@ class Cube3DWidget(QOpenGLWidget):
             return
 
         # diğer release olayları
+        if self._dragging and not self.cut_mode and not self.mode == 'erase':
+            self.save_state()
+        self._dragging = False
         self.last_mouse_position = None
+
+    def _erase_triangles(self):
+        """
+        Silgi dairesine giren üçgenleri keser; mesh boşalırsa siler.
+        Silgi merkezi ve yarıçapı ekran pikselinde (`self.erase_cursor`,
+        `self.erase_radius_px`) saklıdır.
+        """
+        if self.erase_cursor is None:
+            return
+        cx, cy = self.erase_cursor.x(), self.erase_cursor.y()
+        r2 = self.erase_radius_px ** 2
+
+        changed = False
+        for m in list(self.meshes):
+
+            # 1) verteksleri dünya → ekran
+            verts_w = (self._model_matrix(m) @
+                       np.c_[m.vertices, np.ones(len(m.vertices))].T).T[:, :3]
+            scr_xy = self._screen_coords(verts_w)
+
+            # 2) hangi verteksler daire içinde?
+            dx = scr_xy[:, 0] - cx
+            dy = scr_xy[:, 1] - cy  # y-eksen düzeltmesi
+            inside = dx * dx + dy * dy < r2
+            if not inside.any():
+                continue
+
+            tri = m.indices.reshape(-1, 3)
+            hit_tri = inside[tri].any(axis=1)  # ≥1 vert içerde
+            if not hit_tri.any():
+                continue
+
+            keep_tri = ~hit_tri
+            changed = True
+
+            if not keep_tri.any():  # mesh tamamen gitti
+                self.meshes.remove(m)
+                continue
+
+            keep_idx = tri[keep_tri].flatten()
+            uniq, new_idx = np.unique(keep_idx, return_inverse=True)
+
+            # ── dizileri senkron küçült ───────────────────────────────
+            m.vertices = m.vertices[uniq]
+            if getattr(m, "colors", None) is not None:
+                m.colors = m.colors[uniq]
+            if getattr(m, "normals", None) is not None:
+                m.normals = m.normals[uniq]
+
+            m.indices = new_idx.astype(np.uint32)
+            m.index_count = len(m.indices)
+
+            # opsiyonel: normalleri yeniden hesapla (kaba)
+            self._recalc_normals(m)
+
+            m._update_gpu()
+
+        if changed:
+            self.save_state()  # undo
+            self.selected_mesh = None
+            self.scene_changed.emit()
+            self.selection_changed.emit(-1)
+            self.update()
+
+    def _recalc_normals(self, mesh):
+        """
+        Çok basit – her üçgen normali, o üçgenin üç verteksine kopyalanır.
+        İsterseniz daha gelişmiş ortalama normal de hesaplayabilirsiniz.
+        """
+        v = mesh.vertices
+        tri = mesh.indices.reshape(-1, 3)
+        n = np.zeros_like(v, dtype=np.float32)
+
+        a = v[tri[:, 1]] - v[tri[:, 0]]
+        b = v[tri[:, 2]] - v[tri[:, 0]]
+        face_n = np.cross(a, b)
+        lens = np.linalg.norm(face_n, axis=1, keepdims=True) + 1e-12
+        face_n /= lens
+
+        for i, fn in enumerate(face_n):
+            n[tri[i]] += fn
+        lens = np.linalg.norm(n, axis=1, keepdims=True) + 1e-12
+        mesh.normals = (n / lens).astype(np.float32)
     def screen_to_world(self, sx, sy, proj_inv, view_inv):
         """
         Convert 2D widget coords (sx,sy) into a world‐space point on the near plane.
@@ -1014,6 +1193,45 @@ class Cube3DWidget(QOpenGLWidget):
         M[:3,:3] = self.rotation_matrix[:3,:3]
         M[:3, 3] = [self.x_translation, self.y_translation, self.zoom]
         return M
+
+    def _world_radius_from_pixels(self, px):
+        proj_inv, view_inv = self._inverse_mats()
+        cx, cy = self.erase_cursor.x(), self.erase_cursor.y()
+        w_c = self.screen_to_world(cx, cy, proj_inv, view_inv)
+        w_rx = self.screen_to_world(cx + 1, cy, proj_inv, view_inv)
+        dx = self._world_to_screen(w_rx)[0] - self._world_to_screen(w_c)[0]
+        if dx == 0:  # güvenlik
+            return 0.0
+        return px / abs(dx)
+
+    def _screen_coords(self, verts_world: np.ndarray) -> np.ndarray:
+        """
+        verts_world : (N,3) float32
+        Dönüş       : (N,2) float32  – Qt ekran piksel koordinatı
+        (0,0) sol-üst köşe olacak şekilde döner.
+        """
+        # --- 1)  dünya → kamera (view) -----------------------------------
+        view = self._view_mat().astype(np.float64)  # (4×4)
+        proj = self._proj_mat().astype(np.float64)  # (4×4)
+        verts_h = np.c_[verts_world, np.ones(len(verts_world))].T  # (4×N)
+
+        clip = proj @ (view @ verts_h)  # (4×N)
+        ndc = (clip[:3] / clip[3]).T  # (N×3)
+
+        # --- 2)  NDC (−1…+1)  →  ekran px (0,0 sol-üst) ------------------
+        w, h = self.width(), self.height()
+        scr = np.empty((len(ndc), 2), np.float32)
+        scr[:, 0] = (ndc[:, 0] * 0.5 + 0.5) * w  # x
+        scr[:, 1] = (1.0 - (ndc[:, 1] * 0.5 + 0.5)) * h  # y (sol-üst)
+        return scr
+
+    def _world_to_screen(self, world_pt):
+        proj = glGetDoublev(GL_PROJECTION_MATRIX)
+        view = glGetDoublev(GL_MODELVIEW_MATRIX)
+        vp = glGetIntegerv(GL_VIEWPORT)
+        sx, sy, _ = gluProject(world_pt[0], world_pt[1], world_pt[2],
+                               view, proj, vp)
+        return sx, sy
 
     # ---------- Ray / AABB kesişimi (DDA yöntemi) ---------------------
     @staticmethod

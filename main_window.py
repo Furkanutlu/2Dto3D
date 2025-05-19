@@ -98,7 +98,7 @@ class MainWindow(QMainWindow):
 
         # Eksen göster/gizle
         self.axis_act = QAction("Eksen Göster", self, checkable=True)
-        self.axis_act.setChecked(True)
+        self.axis_act.setChecked(False)
         self.axis_act.hovered.connect(lambda: QToolTip.showText(
             QCursor.pos(),
             "X ekseni → kırmızı\nY ekseni → yeşil\nZ ekseni → mavi"
@@ -133,7 +133,7 @@ class MainWindow(QMainWindow):
             grid_mode_menu.addAction(act)
 
         # Varsayılanı işaretle
-        self.grid_all_act.setChecked(True)
+        self.grid_none_act.setChecked(True)
 
         # Bağlantıları yap
         self.grid_all_act.triggered.connect(lambda: self.cube_widget.set_grid_mode('all'))
