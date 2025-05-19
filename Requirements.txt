@@ -1,0 +1,6 @@
+pyqt5
+numpy
+PyOpenGL
+numba
+opencv-python
+scikit-image
