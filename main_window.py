@@ -144,7 +144,7 @@ class MainWindow(QMainWindow):
 
 
 
-        # “Grid Boyutu…” eylemi
+        # "Grid Boyutu…" eylemi
         grid_size_act = QAction("Grid Boyutu…", self)
         grid_size_act.triggered.connect(self.adjust_grid_size)
         settings_menu.addAction(grid_size_act)
@@ -174,13 +174,13 @@ class MainWindow(QMainWindow):
             f"Eksen uzunluğu {val} birim olarak ayarlandı."
         )
     def _set_grid(self, mode: str):
-        """Seçilen düzlem moduna geç ve grid’i aç."""
+        """Seçilen düzlem moduna geç ve grid'i aç."""
         # grid toggle düğmesini de senkronize edelim
         self.cube_widget.set_grid_visible(True)
         self.cube_widget.set_grid_mode(mode)
 
     def _disable_grid(self):
-        """Grid’leri tamamen kapat."""
+        """Grid'leri tamamen kapat."""
         self.cube_widget.set_grid_visible(False)
 
     def adjust_grid_size(self):
@@ -197,7 +197,7 @@ class MainWindow(QMainWindow):
         if not ok:
             return
         # Hem spacing hem de half_count orantılı güncellenebilir,
-        # burada yalnızca spacing’i ayarlıyoruz:
+        # burada yalnızca spacing'i ayarlıyoruz:
         self.cube_widget.set_grid_spacing(val)
         QMessageBox.information(
             self, "Grid Ayarlandı",
@@ -224,8 +224,23 @@ class MainWindow(QMainWindow):
         name, ok = QInputDialog.getText(self, "Yeni Proje", "Proje Adı:")
         if not ok or not name.strip():
             return
-        base = r"C:\Users\mfurk\2Dto3D"
-        proj_dir = os.path.join(base, name)
+            
+        # Get desktop path
+        desktop = os.path.join(os.path.expanduser("~"), "Desktop")
+        
+        # Open file dialog starting from desktop
+        proj_dir = QFileDialog.getExistingDirectory(
+            self,
+            "Proje Konumunu Seçin",
+            desktop,
+            QFileDialog.ShowDirsOnly
+        )
+        
+        if not proj_dir:  # User cancelled the dialog
+            return
+            
+        # Create project directory inside selected location
+        proj_dir = os.path.join(proj_dir, name)
         if os.path.exists(proj_dir):
             QMessageBox.warning(self, "Hata", f"\"{name}\" adlı proje zaten var.")
             return
@@ -290,8 +305,11 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self, "Kaydedildi", "Proje kaydedildi.")
     def open_project(self):
         """Var olan projeyi aç ve sahneyi yükle."""
+        # Get desktop path
+        desktop = os.path.join(os.path.expanduser("~"), "Desktop")
+        
         proj_dir = QFileDialog.getExistingDirectory(
-            self, "Proje Klasörü Seç", r"C:\Users\mfurk\2Dto3D"
+            self, "Proje Klasörü Seç", desktop
         )
         if not proj_dir:
             return
