@@ -275,7 +275,8 @@ class MainWindow(QMainWindow):
             filepath = os.path.join(self.project_dir, f"{m.name}.obj")
             export_mesh(m, filepath)
 
-            colors = m.colors.tolist() if getattr(m, 'colors', None) else None
+            cols_attr = getattr(m, 'colors', None)
+            colors = cols_attr.tolist() if cols_attr is not None else None
             manifest["meshes"].append({
                 "name": m.name,
                 "file": f"{m.name}.obj",

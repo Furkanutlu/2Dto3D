@@ -38,7 +38,7 @@ class Cube3DWidget(QOpenGLWidget):
         self.x_translation = 0.0
         self.y_translation = 0.0
         self.zoom = -6.0
-        # how many lines each side of center; increase for finer “infinite” illusion
+        # how many lines each side of center; increase for finer "infinite" illusion
         self._grid_half_count = 200
         self._grid_spacing = 1.0
         self.last_mouse_position = None
@@ -124,7 +124,7 @@ class Cube3DWidget(QOpenGLWidget):
             self.u_dif = glGetUniformLocation(self.prog, "u_diffuse")
             self.use_shader = True
         except RuntimeError as e:
-            print("Shader derlenemedi, eski pipeline’a düşüldü:", e, file=sys.stderr)
+            print("Shader derlenemedi, eski pipeline'a düşüldü:", e, file=sys.stderr)
             self.use_shader = False
 
         # ── Eski sabit-pipeline yedeği ────────────────────────────────
@@ -157,7 +157,7 @@ class Cube3DWidget(QOpenGLWidget):
 
     def set_grid_spacing(self, spacing: float):
         self._grid_spacing = spacing
-        # isteğe bağlı: half_count’ü de orantılamak isterseniz:
+        # isteğe bağlı: half_count'ü de orantılamak isterseniz:
         self._grid_half_count = int(200 * (1.0 / spacing))
         self.update()
 
@@ -196,7 +196,7 @@ class Cube3DWidget(QOpenGLWidget):
             glEnable(GL_LIGHTING)
             if self.use_shader: glUseProgram(self.prog)
 
-        # --- MESH’LER ---------------------------------------------------
+        # --- MESH'LER ---------------------------------------------------
         for mesh in self.meshes:
             self._draw_mesh(mesh)
 
@@ -405,7 +405,7 @@ class Cube3DWidget(QOpenGLWidget):
             mvp = pr @ mv
             glUniformMatrix4fv(self.u_mvp, 1, GL_FALSE, mvp.T)
 
-            # normal matrisi (MV’nin üst-sol 3×3’ü)
+            # normal matrisi (MV'nin üst-sol 3×3'ü)
             glUniformMatrix3fv(self.u_nmat, 1, GL_FALSE, mv[:3, :3].T)
 
             # ışık + malzeme
@@ -422,7 +422,7 @@ class Cube3DWidget(QOpenGLWidget):
             if id_color:  # seçim modu
                 glDisableVertexAttribArray(1)
                 glVertexAttrib3f(1, *id_color)
-                if m.vbo_c:  # <<< mesh’te vertex renk VARDIysa sonra geri aç
+                if m.vbo_c:  # <<< mesh'te vertex renk VARDIysa sonra geri aç
                     restore_attr1 = True  #
             elif not m.vbo_c:
                 glDisableVertexAttribArray(1)
@@ -433,7 +433,7 @@ class Cube3DWidget(QOpenGLWidget):
 
         # ── temizlik ─────────────────────────────────────────────────
         if use_vao and restore_attr1:  # +++ EKLENDİ +++
-            glEnableVertexAttribArray(1)  # attr-1’i tekrar aktif et
+            glEnableVertexAttribArray(1)  # attr-1'i tekrar aktif et
         if use_vao:
             glBindVertexArray(0)
         glUseProgram(0)
@@ -512,8 +512,17 @@ class Cube3DWidget(QOpenGLWidget):
         glMatrixMode(GL_MODELVIEW)
 
     def save_state(self):
+        # Create a deep copy of meshes with proper color handling
+        meshes_copy = []
+        for m in self.meshes:
+            mesh_copy = copy.deepcopy(m)
+            # Ensure colors are properly copied if they exist
+            if hasattr(m, 'colors') and m.colors is not None:
+                mesh_copy.colors = m.colors.copy()
+            meshes_copy.append(mesh_copy)
+
         self.undo_stack.append({
-            'meshes': copy.deepcopy(self.meshes),
+            'meshes': meshes_copy,
             'rotation_matrix': self.rotation_matrix.copy(),
             'x_translation': self.x_translation,
             'y_translation': self.y_translation,
@@ -527,51 +536,110 @@ class Cube3DWidget(QOpenGLWidget):
         """
         Undo/redo için kaydedilmiş durumu geri yükler ve GPU tamponlarını günceller.
         """
-        # 1) Python-side kopyaları yükle
-        self.meshes = copy.deepcopy(s['meshes'])
+        try:
+            self.makeCurrent()
+            
+            # 1) Önce mevcut GPU kaynaklarını temizle
+            for m in self.meshes:
+                if hasattr(m, 'vbo_v'):
+                    glDeleteBuffers(1, [m.vbo_v])
+                if hasattr(m, 'vbo_i'):
+                    glDeleteBuffers(1, [m.vbo_i])
+                if hasattr(m, 'vbo_c'):
+                    glDeleteBuffers(1, [m.vbo_c])
+                if hasattr(m, 'vbo_n'):
+                    glDeleteBuffers(1, [m.vbo_n])
+                if hasattr(m, 'vao'):
+                    glDeleteVertexArrays(1, [m.vao])
 
-        # 2) GPU buffer’larını yeniden oluştur
-        for m in self.meshes:
-            # Vertex pozisyonu
-            glBindBuffer(GL_ARRAY_BUFFER, m.vbo_v)
-            glBufferData(GL_ARRAY_BUFFER,
-                         m.vertices.nbytes,
-                         m.vertices,
-                         GL_STATIC_DRAW)
-            # İndeksler
-            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m.vbo_i)
-            glBufferData(GL_ELEMENT_ARRAY_BUFFER,
-                         m.indices.nbytes,
-                         m.indices,
-                         GL_STATIC_DRAW)
-            # Renk tamponu (varsa)
-            if getattr(m, 'vbo_c', None):
-                glBindBuffer(GL_ARRAY_BUFFER, m.vbo_c)
+            # 2) Python-side kopyaları yükle
+            self.meshes = []
+            for m in s['meshes']:
+                mesh_copy = copy.deepcopy(m)
+                # Ensure colors are properly copied if they exist
+                if hasattr(m, 'colors') and m.colors is not None:
+                    mesh_copy.colors = m.colors.copy()
+                self.meshes.append(mesh_copy)
+
+            # 3) GPU buffer'larını yeniden oluştur
+            for m in self.meshes:
+                # Vertex pozisyonu
+                m.vbo_v = glGenBuffers(1)
+                glBindBuffer(GL_ARRAY_BUFFER, m.vbo_v)
                 glBufferData(GL_ARRAY_BUFFER,
-                             m.colors.nbytes,
-                             m.colors,
-                             GL_STATIC_DRAW)
-            # ── Normal tamponunu da mutlaka güncelle ──
-            if getattr(m, 'vbo_n', None):
-                glBindBuffer(GL_ARRAY_BUFFER, m.vbo_n)
-                glBufferData(GL_ARRAY_BUFFER,
-                             m.normals.nbytes,
-                             m.normals,
+                             m.vertices.nbytes,
+                             m.vertices,
                              GL_STATIC_DRAW)
 
-        # 3) Kamera & sahne durumunu yükle
-        self.rotation_matrix = s['rotation_matrix'].copy()
-        self.x_translation = s['x_translation']
-        self.y_translation = s['y_translation']
-        self.zoom = s['zoom']
-        # 4) Arkaplan rengi
-        self.bg_color = s.get('bg_color', self.bg_color)
-        glClearColor(*self.bg_color)
-        # 5) Seçili mesh
-        sid = s['selected_id']
-        self.selected_mesh = next((m for m in self.meshes if m.id == sid), None)
-        # 6) Görünümü yenile
-        self.update()
+                # İndeksler
+                m.vbo_i = glGenBuffers(1)
+                glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m.vbo_i)
+                glBufferData(GL_ELEMENT_ARRAY_BUFFER,
+                             m.indices.nbytes,
+                             m.indices,
+                             GL_STATIC_DRAW)
+
+                # Renk tamponu (varsa)
+                if hasattr(m, 'colors') and m.colors is not None:
+                    m.vbo_c = glGenBuffers(1)
+                    glBindBuffer(GL_ARRAY_BUFFER, m.vbo_c)
+                    glBufferData(GL_ARRAY_BUFFER,
+                                 m.colors.nbytes,
+                                 m.colors,
+                                 GL_STATIC_DRAW)
+
+                # Normal tamponu
+                if hasattr(m, 'normals') and m.normals is not None:
+                    m.vbo_n = glGenBuffers(1)
+                    glBindBuffer(GL_ARRAY_BUFFER, m.vbo_n)
+                    glBufferData(GL_ARRAY_BUFFER,
+                                 m.normals.nbytes,
+                                 m.normals,
+                                 GL_STATIC_DRAW)
+
+                # VAO oluştur (eğer kullanılıyorsa)
+                if self.use_vao:
+                    m.vao = glGenVertexArrays(1)
+                    glBindVertexArray(m.vao)
+                    
+                    # Vertex attributes
+                    glBindBuffer(GL_ARRAY_BUFFER, m.vbo_v)
+                    glEnableVertexAttribArray(0)
+                    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, None)
+                    
+                    if hasattr(m, 'vbo_c') and m.vbo_c is not None:
+                        glBindBuffer(GL_ARRAY_BUFFER, m.vbo_c)
+                        glEnableVertexAttribArray(1)
+                        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 0, None)
+                    
+                    glBindBuffer(GL_ARRAY_BUFFER, m.vbo_n)
+                    glEnableVertexAttribArray(2)
+                    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 0, None)
+                    
+                    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m.vbo_i)
+                    glBindVertexArray(0)
+
+            # 4) Kamera & sahne durumunu yükle
+            self.rotation_matrix = s['rotation_matrix'].copy()
+            self.x_translation = s['x_translation']
+            self.y_translation = s['y_translation']
+            self.zoom = s['zoom']
+
+            # 5) Arkaplan rengi
+            self.bg_color = s.get('bg_color', self.bg_color)
+            glClearColor(*self.bg_color)
+
+            # 6) Seçili mesh
+            sid = s['selected_id']
+            self.selected_mesh = next((m for m in self.meshes if m.id == sid), None)
+
+            # 7) Görünümü yenile
+            self.update()
+
+        except Exception as e:
+            print(f"Error in load_state: {e}")
+        finally:
+            self.doneCurrent()
 
     def undo(self):
         if not self.undo_stack:
@@ -621,7 +689,7 @@ class Cube3DWidget(QOpenGLWidget):
         """
         HIZLI OBJ yükleyici:
           •   read() → tek pass; NumPy ile vertex/faces çıkarımı
-          •   “f” satırlarındaki n-gon’ları tek seferde üçgen fana açar
+          •   "f" satırlarındaki n-gon'ları tek seferde üçgen fana açar
           •   Vertex-renk yoksa MTL renklerini korur
         """
         import re, numpy as np, os
@@ -677,7 +745,7 @@ class Cube3DWidget(QOpenGLWidget):
             mtl_path = os.path.join(os.path.dirname(fn), mtl_match.group(1))
             mtl_colors = _parse_mtl(mtl_path)
 
-        # ---------- Mesh’leri oluştur ----------
+        # ---------- Mesh'leri oluştur ----------
         self.save_state()
         for mat, tris in faces_by_mat.items():
             v_idx = np.array(tris, np.uint32).flatten()
@@ -704,7 +772,7 @@ class Cube3DWidget(QOpenGLWidget):
             self.update()
 
     def delete_selected_object(self):
-        """Seçili mesh’i sil."""
+        """Seçili mesh'i sil."""
         if self.selected_mesh:
             self.save_state()
             self.meshes.remove(self.selected_mesh)
@@ -830,10 +898,12 @@ class Cube3DWidget(QOpenGLWidget):
         # drag sonucu undo yalnızca cut_mod değilse kaydet
 
         # Silgi modunda release anında undo kaydı almak için:
-        if self.mode == 'erase' and e.button() == Qt.LeftButton and self.erase_dirty:
-            self.save_state()  # değişiklik: silme sonrası undo için durum kaydı
-            self.erase_dirty = False  # bayrak sıfırlanıyor
+        if self.mode == 'erase' and e.button() == Qt.LeftButton:
+            if self.erase_dirty:
+                self.save_state()  # değişiklik: silme sonrası undo için durum kaydı
+                self.erase_dirty = False  # bayrak sıfırlanıyor
             return
+
         # --- KESME KİPİNDE SOL TUŞA BIRAKMA: düzlemi uygula
         if e.button() == Qt.LeftButton and self.cut_mode and self.cut_start_pos:
             self.cut_end_pos = e.pos()
@@ -863,48 +933,89 @@ class Cube3DWidget(QOpenGLWidget):
 
         changed = False
         for m in list(self.meshes):
+            try:
+                # 1) verteksleri dünya → ekran
+                verts_w = (self._model_matrix(m) @
+                           np.c_[m.vertices, np.ones(len(m.vertices))].T).T[:, :3]
+                scr_xy = self._screen_coords(verts_w)
 
-            # 1) verteksleri dünya → ekran
-            verts_w = (self._model_matrix(m) @
-                       np.c_[m.vertices, np.ones(len(m.vertices))].T).T[:, :3]
-            scr_xy = self._screen_coords(verts_w)
+                # 2) hangi verteksler daire içinde?
+                dx = scr_xy[:, 0] - cx
+                dy = scr_xy[:, 1] - cy  # y-eksen düzeltmesi
+                inside = dx * dx + dy * dy < r2
+                if not inside.any():
+                    continue
 
-            # 2) hangi verteksler daire içinde?
-            dx = scr_xy[:, 0] - cx
-            dy = scr_xy[:, 1] - cy  # y-eksen düzeltmesi
-            inside = dx * dx + dy * dy < r2
-            if not inside.any():
+                tri = m.indices.reshape(-1, 3)
+                hit_tri = inside[tri].any(axis=1)  # ≥1 vert içerde
+                if not hit_tri.any():
+                    continue
+
+                keep_tri = ~hit_tri
+                changed = True
+
+                if not keep_tri.any():  # mesh tamamen gitti
+                    # Clean up GPU resources before removing
+                    if hasattr(m, 'vbo_v'):
+                        glDeleteBuffers(1, [m.vbo_v])
+                    if hasattr(m, 'vbo_i'):
+                        glDeleteBuffers(1, [m.vbo_i])
+                    if hasattr(m, 'vbo_c'):
+                        glDeleteBuffers(1, [m.vbo_c])
+                    if hasattr(m, 'vbo_n'):
+                        glDeleteBuffers(1, [m.vbo_n])
+                    if hasattr(m, 'vao'):
+                        glDeleteVertexArrays(1, [m.vao])
+                    self.meshes.remove(m)
+                    continue
+
+                keep_idx = tri[keep_tri].flatten()
+                uniq, new_idx = np.unique(keep_idx, return_inverse=True)
+
+                # ── dizileri senkron küçült ───────────────────────────────
+                m.vertices = m.vertices[uniq]
+                if getattr(m, "colors", None) is not None:
+                    m.colors = m.colors[uniq]
+                if getattr(m, "normals", None) is not None:
+                    m.normals = m.normals[uniq]
+
+                m.indices = new_idx.astype(np.uint32)
+                m.index_count = len(m.indices)
+
+                # opsiyonel: normalleri yeniden hesapla (kaba)
+                self._recalc_normals(m)
+
+                # Update GPU buffers with error checking
+                try:
+                    self.makeCurrent()
+                    # Vertex buffer
+                    glBindBuffer(GL_ARRAY_BUFFER, m.vbo_v)
+                    glBufferData(GL_ARRAY_BUFFER, m.vertices.nbytes, m.vertices, GL_STATIC_DRAW)
+                    
+                    # Index buffer
+                    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m.vbo_i)
+                    glBufferData(GL_ELEMENT_ARRAY_BUFFER, m.indices.nbytes, m.indices, GL_STATIC_DRAW)
+                    
+                    # Color buffer (if exists)
+                    if getattr(m, 'vbo_c', None) is not None and getattr(m, 'colors', None) is not None:
+                        glBindBuffer(GL_ARRAY_BUFFER, m.vbo_c)
+                        glBufferData(GL_ARRAY_BUFFER, m.colors.nbytes, m.colors, GL_STATIC_DRAW)
+                    
+                    # Normal buffer
+                    if getattr(m, 'vbo_n', None) is not None and getattr(m, 'normals', None) is not None:
+                        glBindBuffer(GL_ARRAY_BUFFER, m.vbo_n)
+                        glBufferData(GL_ARRAY_BUFFER, m.normals.nbytes, m.normals, GL_STATIC_DRAW)
+                    
+                    glBindBuffer(GL_ARRAY_BUFFER, 0)
+                    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0)
+                    self.doneCurrent()
+                except Exception as e:
+                    print(f"Error updating GPU buffers: {e}")
+                    continue
+
+            except Exception as e:
+                print(f"Error processing mesh: {e}")
                 continue
-
-            tri = m.indices.reshape(-1, 3)
-            hit_tri = inside[tri].any(axis=1)  # ≥1 vert içerde
-            if not hit_tri.any():
-                continue
-
-            keep_tri = ~hit_tri
-            changed = True
-
-            if not keep_tri.any():  # mesh tamamen gitti
-                self.meshes.remove(m)
-                continue
-
-            keep_idx = tri[keep_tri].flatten()
-            uniq, new_idx = np.unique(keep_idx, return_inverse=True)
-
-            # ── dizileri senkron küçült ───────────────────────────────
-            m.vertices = m.vertices[uniq]
-            if getattr(m, "colors", None) is not None:
-                m.colors = m.colors[uniq]
-            if getattr(m, "normals", None) is not None:
-                m.normals = m.normals[uniq]
-
-            m.indices = new_idx.astype(np.uint32)
-            m.index_count = len(m.indices)
-
-            # opsiyonel: normalleri yeniden hesapla (kaba)
-            self._recalc_normals(m)
-
-            m._update_gpu()
 
         if changed:
             self.save_state()  # undo
@@ -934,24 +1045,24 @@ class Cube3DWidget(QOpenGLWidget):
         mesh.normals = (n / lens).astype(np.float32)
     def screen_to_world(self, sx, sy, proj_inv, view_inv):
         """
-        Convert 2D widget coords (sx,sy) into a world‐space point on the near plane.
+        Convert 2D widget coords (sx,sy) into a world-space point on the near plane.
         We add a 0.5 offset so that we unproject from the pixel center, which
         makes the cut plane align exactly with the red guide line.
         """
         w, h = self.width(), self.height()
 
-        # pixel‐center correction
+        # pixel-center correction
         x_ndc =  2.0 * (sx + 0.5) / w - 1.0
         y_ndc =  1.0 - 2.0 * (sy + 0.5) / h
         z_ndc = -1.0   # near plane
 
         ndc = np.array([x_ndc, y_ndc, z_ndc, 1.0], dtype=np.float64)
 
-        # eye‐space
+        # eye-space
         eye = proj_inv @ ndc
         eye /= eye[3]
 
-        # world‐space
+        # world-space
         world = view_inv @ eye
         world /= world[3]
 
@@ -1131,7 +1242,7 @@ class Cube3DWidget(QOpenGLWidget):
         glTranslatef(self.x_translation, self.y_translation, self.zoom)
         glMultMatrixf(self.rotation_matrix.flatten('F'))
 
-        # Her mesh’i kendine özgü tek renkle çiz
+        # Her mesh'i kendine özgü tek renkle çiz
         for m in self.meshes:
             r = ((m.id >> 16) & 0xFF) / 255.0
             g = ((m.id >>  8) & 0xFF) / 255.0
@@ -1172,7 +1283,7 @@ class Cube3DWidget(QOpenGLWidget):
         ray_dir    = world_far[:3] - world_near[:3]
         ray_dir   /= np.linalg.norm(ray_dir)
 
-        # 2-c: Her mesh’in axis-aligned bounding box’ı ile kesişimi bul
+        # 2-c: Her mesh'in axis-aligned bounding box'ı ile kesişimi bul
         best_mesh, best_t = None, 1e9
         for m in self.meshes:
             mn, mx = m.aabb_world()                # Mesh.aabb_world() şart
