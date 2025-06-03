@@ -92,9 +92,26 @@ class MainWindow(QMainWindow):
         settings_menu = menubar.addMenu("Ayarlar")
 
         # Tema rengi
-        theme_act = QAction("Tema", self)
-        theme_act.triggered.connect(self.change_theme)
-        settings_menu.addAction(theme_act)
+        theme_menu = settings_menu.addMenu("Tema")
+        theme_group = QActionGroup(self)
+
+        self.light_theme_act = QAction("Light Mode", self, checkable=True)
+        self.dark_theme_act = QAction("Dark Mode", self, checkable=True)
+        self.high_contrast_theme_act = QAction("High Contrast", self, checkable=True)
+
+        # Add themes to group and menu
+        for act in (self.light_theme_act, self.dark_theme_act, self.high_contrast_theme_act):
+            theme_group.addAction(act)
+            theme_menu.addAction(act)
+
+        # Set default theme
+        self.light_theme_act.setChecked(True)
+        self.apply_theme("light")
+
+        # Connect theme actions
+        self.light_theme_act.triggered.connect(lambda: self.apply_theme("light"))
+        self.dark_theme_act.triggered.connect(lambda: self.apply_theme("dark"))
+        self.high_contrast_theme_act.triggered.connect(lambda: self.apply_theme("high_contrast"))
 
         # Eksen göster/gizle
         self.axis_act = QAction("Eksen Göster", self, checkable=True)
@@ -379,13 +396,18 @@ class MainWindow(QMainWindow):
                                 "Mevcut proje kaydedilmeden kapatıldı.")
         self.main_screen.notes_panel.text.clear()
 
+    def apply_theme(self, theme: str):
+        """Apply the selected theme to the application."""
+        if theme == "light":
+            qApp.setStyleSheet("QMainWindow { background-color: #FFFFFF; }")
+        elif theme == "dark":
+            qApp.setStyleSheet("QMainWindow { background-color: #121212; }")
+        elif theme == "high_contrast":
+            qApp.setStyleSheet("QMainWindow { background-color: #000000; }")
+
     def change_theme(self):
-        """Tema rengini QColorDialog ile seç ve uygulama stilini güncelle."""
-        color = QColorDialog.getColor()
-        if color.isValid():
-            qApp.setStyleSheet(f"QMainWindow {{ background-color: {color.name()}; }}")
-            QMessageBox.information(self, "Tema Değiştirildi",
-                                    f"Tema rengi {color.name()} olarak ayarlandı.")
+        """This method is kept for compatibility but is no longer used."""
+        pass
 
     def load_mesh_from_file(self, filepath: str) -> Mesh:
         """OBJ dosyasından Mesh üretir (v ve f satırlarını okur)."""
