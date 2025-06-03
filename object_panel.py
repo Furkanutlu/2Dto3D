@@ -64,22 +64,26 @@ class ObjectPanel(QWidget):
     def _mark(self, mesh_id: int):
         """Seçilen mesh değiştiğinde ✓ işaretini güncelle."""
         for row, m in enumerate(self.cube_widget.meshes):
-            prefix = "✓ " if m.id == mesh_id else ""
+            prefix = "✓ " if row == mesh_id else ""
             self.list.item(row).setText(prefix + m.name)
 
     # ------------------------------------------------------------
     def _click_item(self, item):
-        """Liste satırına tıklandığında obje seç / seçimi kaldır."""
-        name_clicked = item.text().lstrip("✓ ").strip()
-        target = next((m for m in self.cube_widget.meshes
-                       if m.name == name_clicked), None)
+        # Tıklanan satırın dizinini al
+        idx = self.list.row(item)
 
-        if target == self.cube_widget.selected_mesh:       # tekrar tıklandı → kaldır
+        if idx == self.cube_widget.selected_index:
+            # Aynı öğeye yeniden tıklandı → seçimi kaldır
             self.cube_widget.selected_mesh = None
+            self.cube_widget.selected_index = -1
             self.cube_widget.selection_changed.emit(-1)
-        else:                                              # yeni seçim
-            self.cube_widget.selected_mesh = target
-            self.cube_widget.selection_changed.emit(target.id)
+        else:
+            # Yeni öğe seçildi
+            self.cube_widget.selected_mesh = self.cube_widget.meshes[idx]
+            self.cube_widget.selected_index = idx
+            self.cube_widget.selection_changed.emit(idx)
 
+        # Görünümü ve listeyi yenile
         self.cube_widget.update()
         self._refresh()
+

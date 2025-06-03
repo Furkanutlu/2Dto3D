@@ -2,6 +2,8 @@
 import numpy as np
 from OpenGL.GL import *
 from numba import njit            #  ← eklendi
+from OpenGL.GL import GL_POINTS, GL_TRIANGLES
+from math import radians, sin, cos
 
 # ----------------------------------------------------------------------
 # Numba JIT’li Sutherland–Hodgman clip
@@ -58,6 +60,7 @@ class Mesh:
         self.vertices = vertices.astype(np.float32).copy()
         self.indices = indices.astype(np.uint32).copy()
         self.index_count = self.indices.size
+        self.draw_mode = GL_POINTS if self.index_count == 0 else GL_TRIANGLES
         self.colors = colors.astype(np.float32).copy() if colors is not None else None
         self.color = color
         self.vao = 0
@@ -66,18 +69,20 @@ class Mesh:
         # ---------- Normalleri üret ----------
         if normals is None:
             normals = np.zeros_like(self.vertices)
-            f = self.indices.reshape(-1, 3)
-            v0, v1, v2 = self.vertices[f[:, 0]], self.vertices[f[:, 1]], self.vertices[f[:, 2]]
-            nrm = np.cross(v1 - v0, v2 - v0)
-            ln = np.linalg.norm(nrm, axis=1)
-            ln[ln < 1e-8] = 1.0
-            nrm /= ln[:, None]  # ← düzeltme
-            np.add.at(normals, f[:, 0], nrm)
-            np.add.at(normals, f[:, 1], nrm)
-            np.add.at(normals, f[:, 2], nrm)
-            lens = np.linalg.norm(normals, axis=1)  # ← keepdims=False
-            mask = lens > 1e-8
-            normals[mask] /= lens[mask][:, None]  # ← broadcast’la böl
+
+            if self.index_count >= 3:
+                f = self.indices.reshape(-1, 3)
+                v0, v1, v2 = self.vertices[f[:, 0]], self.vertices[f[:, 1]], self.vertices[f[:, 2]]
+                nrm = np.cross(v1 - v0, v2 - v0)
+                ln = np.linalg.norm(nrm, axis=1)
+                ln[ln < 1e-8] = 1.0
+                nrm /= ln[:, None]  # normalize
+                np.add.at(normals, f[:, 0], nrm)
+                np.add.at(normals, f[:, 1], nrm)
+                np.add.at(normals, f[:, 2], nrm)
+                lens = np.linalg.norm(normals, axis=1)
+                mask = lens > 1e-8
+                normals[mask] /= lens[mask][:, None]
         self.normals = normals.astype(np.float32)
 
         # ---------- GPU tamponları ----------
@@ -283,3 +288,36 @@ class Mesh:
                      self.indices.astype(np.uint32).nbytes,
                      self.indices.astype(np.uint32),
                      GL_STATIC_DRAW)
+
+    def update_buffers(self):
+
+        glBindBuffer(GL_ARRAY_BUFFER, self.vbo_v)
+        glBufferData(GL_ARRAY_BUFFER,
+                     self.vertices.astype(np.float32).nbytes,
+                     self.vertices.astype(np.float32),
+                     GL_STATIC_DRAW)
+
+        if getattr(self, "vbo_c", None) and self.colors is not None:
+            glBindBuffer(GL_ARRAY_BUFFER, self.vbo_c)
+            glBufferData(GL_ARRAY_BUFFER,
+                         self.colors.astype(np.float32).nbytes,
+                         self.colors.astype(np.float32),
+                         GL_STATIC_DRAW)
+
+    def model_matrix(self) -> np.ndarray:
+        sx, sy, sz = self.scale, self.scale, self.scale
+        rx, ry, rz = map(radians, self.rotation)  # deg→rad
+        cx, sx_ = cos(rx), sin(rx)
+        cy, sy_ = cos(ry), sin(ry)
+        cz, sz_ = cos(rz), sin(rz)
+
+        R = np.array([
+            [cy * cz, -cy * sz_, sy_, 0],
+            [sx_ * sy_ * cz + cx * sz_, -sx_ * sy_ * sz_ + cx * cz, -sx_ * cy, 0],
+            [-cx * sy_ * cz + sx_ * sz_, cx * sy_ * sz_ + sx_ * cz, cx * cy, 0],
+            [0, 0, 0, 1]
+        ], dtype=np.float32)
+        S = np.diag([sx, sy, sz, 1])
+        T = np.eye(4, dtype=np.float32);
+        T[0:3, 3] = self.translation
+        return T @ R @ S  # T·R·S
