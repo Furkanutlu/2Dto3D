@@ -8,7 +8,7 @@ from PyQt5.QtWidgets import (
     QInputDialog, QMessageBox, QFileDialog,
     QAction, QActionGroup, QColorDialog, qApp
 )
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, pyqtSignal
 from OpenGL.GL import (
     glGenBuffers, glBindBuffer, glBufferData,
     GL_ARRAY_BUFFER, GL_STATIC_DRAW
@@ -36,6 +36,8 @@ def export_mesh(mesh: Mesh, filepath: str) -> None:
 
 class MainWindow(QMainWindow):
     BASE_TITLE = "3D Studio"
+    theme_changed = pyqtSignal(str)  # Signal for theme changes
+    
     def __init__(self):
         super().__init__()
         self.setWindowTitle(self.BASE_TITLE)
@@ -97,10 +99,9 @@ class MainWindow(QMainWindow):
 
         self.light_theme_act = QAction("Light Mode", self, checkable=True)
         self.dark_theme_act = QAction("Dark Mode", self, checkable=True)
-        self.high_contrast_theme_act = QAction("High Contrast", self, checkable=True)
 
         # Add themes to group and menu
-        for act in (self.light_theme_act, self.dark_theme_act, self.high_contrast_theme_act):
+        for act in (self.light_theme_act, self.dark_theme_act):
             theme_group.addAction(act)
             theme_menu.addAction(act)
 
@@ -111,7 +112,6 @@ class MainWindow(QMainWindow):
         # Connect theme actions
         self.light_theme_act.triggered.connect(lambda: self.apply_theme("light"))
         self.dark_theme_act.triggered.connect(lambda: self.apply_theme("dark"))
-        self.high_contrast_theme_act.triggered.connect(lambda: self.apply_theme("high_contrast"))
 
         # Eksen göster/gizle
         self.axis_act = QAction("Eksen Göster", self, checkable=True)
@@ -402,8 +402,9 @@ class MainWindow(QMainWindow):
             qApp.setStyleSheet("QMainWindow { background-color: #FFFFFF; }")
         elif theme == "dark":
             qApp.setStyleSheet("QMainWindow { background-color: #121212; }")
-        elif theme == "high_contrast":
-            qApp.setStyleSheet("QMainWindow { background-color: #000000; }")
+        
+        # Emit theme changed signal
+        self.theme_changed.emit(theme)
 
     def change_theme(self):
         """This method is kept for compatibility but is no longer used."""
