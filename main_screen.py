@@ -20,18 +20,18 @@ class MainScreen(QWidget):
 
         # ───── stil
         self.current_tool = None
-        self.active_style = ("QToolButton {background:#b0c4de;border:1px solid #666;"
-                             "border-radius:5px;margin:5px;padding:10px;}"
-                             "QToolButton:hover {background:#a0b4ce;}")
-        self.inactive_style = ("QToolButton {background:#fff;border:1px solid #ccc;"
-                               "border-radius:5px;margin:5px;padding:10px;}"
-                               "QToolButton:hover {background:#e0e0e0;}")
+        self.active_style = ("QToolButton {background:#FFB300;border:1px solid #666;"
+                             "border-radius:5px;margin:5px;padding:10px;color:#1565C0;}"
+                             "QToolButton:hover {background:#FFC107;}")
+        self.inactive_style = ("QToolButton {background:#1565C0;border:1px solid #ccc;"
+                               "border-radius:5px;margin:5px;padding:10px;color:white;}"
+                               "QToolButton:hover {background:#1976D2;}")
 
         self.tool_buttons, self.sens_controls = {}, {}
 
         # ───── araç çubuğu
         self.tool_bar = QWidget(); self.tool_bar.setFixedWidth(150)
-        self.tool_bar.setStyleSheet("background:#f0f0f0;border-right:1px solid #ccc;")
+        self.tool_bar.setStyleSheet("background:#F2F4F7;border-right:1px solid #ccc;")
         tb = QVBoxLayout(self.tool_bar); tb.setContentsMargins(0, 0, 0, 0)
 
         icons = [
@@ -153,6 +153,9 @@ class MainScreen(QWidget):
         lay.addWidget(cube_widget, 1)
         lay.addWidget(sidebar)
 
+        # Connect theme changed signal
+        self.main_window.theme_changed.connect(self.update_theme)
+
     # ---------------------------------------------------------------
     def _apply_sensitivity(self, tool, v):
         if tool == "Move":
@@ -191,3 +194,82 @@ class MainScreen(QWidget):
             if fn:
                 self.cube_widget.load_obj(fn)
                 self.main_window.go_main_screen()
+
+    def update_theme(self, theme: str):
+        """Update the UI elements based on the selected theme."""
+        if theme == "light":
+            # Update panel backgrounds
+            self.tool_bar.setStyleSheet("background:#F2F4F7;border-right:1px solid #ccc;color:#1565C0;")
+            self.object_panel.setStyleSheet("background:#F2F4F7;color:#1565C0;")
+            self.inspector_panel.setStyleSheet("background:#F2F4F7;color:#1565C0;")
+            self.notes_panel.setStyleSheet("background:#F2F4F7;color:#1565C0;")
+            
+            # Panel titles
+            for panel in [self.object_panel, self.inspector_panel, self.notes_panel]:
+                panel.title.setStyleSheet("background:#dddddd;color:#1565C0;font-weight:bold;")
+            
+            # Object panel list
+            self.object_panel.list.setStyleSheet("background:#F2F4F7; color:#1565C0;")
+            # Inspector panel widgets
+            for widget in [self.inspector_panel.tri_label,
+                           self.inspector_panel.pos_x, self.inspector_panel.pos_y, self.inspector_panel.pos_z,
+                           self.inspector_panel.rot_x, self.inspector_panel.rot_y, self.inspector_panel.rot_z,
+                           self.inspector_panel.scl_x, self.inspector_panel.scl_y, self.inspector_panel.scl_z]:
+                widget.setStyleSheet("background:#F2F4F7; color:#1565C0;")
+            # Notes panel text
+            self.notes_panel.text.setStyleSheet("background:#F2F4F7; color:#1565C0;")
+            
+            # Update button styles
+            self.active_style = ("QToolButton {background:#FFB300;border:1px solid #666;"
+                                "border-radius:5px;margin:5px;padding:10px;color:#1565C0;}"
+                                "QToolButton:hover {background:#FFC107;}")
+            self.inactive_style = ("QToolButton {background:#1565C0;border:1px solid #ccc;"
+                                  "border-radius:5px;margin:5px;padding:10px;color:white;}"
+                                  "QToolButton:hover {background:#1976D2;}")
+            
+            # Update all tool buttons
+            for name, btn in self.tool_buttons.items():
+                if name == self.current_tool:
+                    btn.setStyleSheet(self.active_style)
+                    btn.setChecked(True)
+                else:
+                    btn.setStyleSheet(self.inactive_style)
+                    btn.setChecked(False)
+        elif theme == "dark":
+            # Update panel backgrounds
+            self.tool_bar.setStyleSheet("background:#1E1E1E;border-right:1px solid #333;color:#EDEDED;")
+            self.object_panel.setStyleSheet("background:#1E1E1E;color:#EDEDED;")
+            self.inspector_panel.setStyleSheet("background:#1E1E1E;color:#EDEDED;")
+            self.notes_panel.setStyleSheet("background:#1E1E1E;color:#EDEDED;")
+            
+            # Panel titles
+            for panel in [self.object_panel, self.inspector_panel, self.notes_panel]:
+                panel.title.setStyleSheet("background:#222;color:#EDEDED;font-weight:bold;")
+            
+            # Object panel list
+            self.object_panel.list.setStyleSheet("background:#1E1E1E; color:#EDEDED;")
+            # Inspector panel widgets
+            for widget in [self.inspector_panel.tri_label,
+                           self.inspector_panel.pos_x, self.inspector_panel.pos_y, self.inspector_panel.pos_z,
+                           self.inspector_panel.rot_x, self.inspector_panel.rot_y, self.inspector_panel.rot_z,
+                           self.inspector_panel.scl_x, self.inspector_panel.scl_y, self.inspector_panel.scl_z]:
+                widget.setStyleSheet("background:#1E1E1E; color:#EDEDED;")
+            # Notes panel text
+            self.notes_panel.text.setStyleSheet("background:#1E1E1E; color:#EDEDED;")
+            
+            # Update button styles
+            self.active_style = ("QToolButton {background:#03DAC6;border:1px solid #666;"
+                                "border-radius:5px;margin:5px;padding:10px;color:#EDEDED;}"
+                                "QToolButton:hover {background:#00C4B4;}")
+            self.inactive_style = ("QToolButton {background:#90CAF9;border:1px solid #ccc;"
+                                  "border-radius:5px;margin:5px;padding:10px;color:#EDEDED;}"
+                                  "QToolButton:hover {background:#64B5F6;}")
+            
+            # Update all tool buttons
+            for name, btn in self.tool_buttons.items():
+                if name == self.current_tool:
+                    btn.setStyleSheet(self.active_style)
+                    btn.setChecked(True)
+                else:
+                    btn.setStyleSheet(self.inactive_style)
+                    btn.setChecked(False)

@@ -1,7 +1,7 @@
 from __future__ import annotations
 """
-Inspector panel — editable transform with spin‑boxes and “–” placeholder.
-Her değer değişikliğinde **Cube3DWidget.save_state()** çağırarak Undo/Redo’ya
+Inspector panel — editable transform with spin‑boxes and "–" placeholder.
+Her değer değişikliğinde **Cube3DWidget.save_state()** çağırarak Undo/Redo'ya
 kaydedilir.
 """
 
@@ -22,7 +22,7 @@ __all__ = ["InspectorPanel"]
 _DEG2RAD = np.pi / 180.0
 _RAD2DEG = 180.0 / np.pi
 _INF     = 16777215
-_BLANK   = -1e12   # sentinel value shown as “–”
+_BLANK   = -1e12   # sentinel value shown as "–"
 
 
 class InspectorPanel(QWidget):
@@ -39,6 +39,7 @@ class InspectorPanel(QWidget):
         # ------------------------------------------------ panel gövdesi
         self.setFixedWidth(180)
         self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
+        self.setStyleSheet("background-color: white;")  # Set white background
 
         root = QVBoxLayout(self);
         root.setContentsMargins(0, 0, 0, 0);
@@ -125,7 +126,7 @@ class InspectorPanel(QWidget):
     # Spin‑box callback → apply to mesh & save undo snapshot
     # ------------------------------------------------------------------
     def _value_changed(self, tag: str, sb: QDoubleSpinBox):
-        # Ignore placeholder “–”
+        # Ignore placeholder "–"
         if sb.value() == _BLANK:
             return
 
@@ -182,7 +183,7 @@ class InspectorPanel(QWidget):
         mesh = getattr(self.cube_widget, "selected_mesh", None)
         has_sel = mesh is not None
 
-        # ---------- Spin-box’ların enable durumu ----------------------
+        # ---------- Spin-box'ların enable durumu ----------------------
         for sp in (
                 self.pos_x, self.pos_y, self.pos_z,
                 self.rot_x, self.rot_y, self.rot_z,
@@ -190,7 +191,7 @@ class InspectorPanel(QWidget):
         ):
             sp.setEnabled(has_sel)
 
-        # --------- Seçim yoksa tüm alanlara “–” -----------------------
+        # --------- Seçim yoksa tüm alanlara "–" -----------------------
         if not has_sel:
             self.tri_label.setText("–")  # ⊿ etiketi
             for sp in (
