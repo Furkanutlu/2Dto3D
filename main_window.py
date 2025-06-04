@@ -158,7 +158,7 @@ class MainWindow(QMainWindow):
             grid_group.addAction(act)
             grid_mode_menu.addAction(act)
 
-        # Varsayılan “Kapalı”
+        # Varsayılan "Kapalı"
         self.grid_none_act.setChecked(True)
 
         # Bağlantıları yap
@@ -174,7 +174,7 @@ class MainWindow(QMainWindow):
         settings_menu.addAction(grid_size_act)
 
         # ---------------------------
-        # “Nokta Boyutu…” eylemi
+        # "Nokta Boyutu…" eylemi
         self.action_point_size = QAction("Nokta Boyutu...", self)
         self.action_point_size.setEnabled(False)  # Başlangıçta pasif
         self.action_point_size.triggered.connect(self.on_change_point_size)
@@ -243,14 +243,14 @@ class MainWindow(QMainWindow):
             self.open_act.setEnabled(True)
             self.save_act.setEnabled(False)
             self.close_act.setEnabled(False)
-            # Entry ekranındayken “Nokta Boyutu” menüsünü pasif kıl
+            # Entry ekranındayken "Nokta Boyutu" menüsünü pasif kıl
             self.action_point_size.setEnabled(False)
         else:
             self.new_act.setEnabled(False)
             self.open_act.setEnabled(False)
             self.save_act.setEnabled(True)
             self.close_act.setEnabled(True)
-            # Ana ekrana geçince, seçili obje durumuna göre “Nokta Boyutu” menüsünü güncelle
+            # Ana ekrana geçince, seçili obje durumuna göre "Nokta Boyutu" menüsünü güncelle
             self._update_point_size_menu()
 
 
@@ -429,9 +429,43 @@ class MainWindow(QMainWindow):
     def apply_theme(self, theme: str):
         """Apply the selected theme to the application."""
         if theme == "light":
-            qApp.setStyleSheet("QMainWindow { background-color: #FFFFFF; }")
+            qApp.setStyleSheet("""
+                QMainWindow { 
+                    background-color: #FFFFFF; 
+                }
+                QPushButton {
+                    background-color: #1565C0;
+                    color: white;
+                    border: none;
+                    border-radius: 4px;
+                    padding: 8px 16px;
+                }
+                QPushButton:hover {
+                    background-color: #1976D2;
+                }
+                QLabel {
+                    color: #1A1A1A;
+                }
+            """)
         elif theme == "dark":
-            qApp.setStyleSheet("QMainWindow { background-color: #121212; }")
+            qApp.setStyleSheet("""
+                QMainWindow { 
+                    background-color: #121212; 
+                }
+                QPushButton {
+                    background-color: #90CAF9;
+                    color: #EDEDED;
+                    border: none;
+                    border-radius: 4px;
+                    padding: 8px 16px;
+                }
+                QPushButton:hover {
+                    background-color: #64B5F6;
+                }
+                QLabel {
+                    color: #EDEDED;
+                }
+            """)
 
         # Emit theme changed signal
         self.theme_changed.emit(theme)
@@ -469,14 +503,14 @@ class MainWindow(QMainWindow):
     def go_entry_screen(self):
         """Giriş ekranına dön."""
         self.stack.setCurrentIndex(0)
-        # Entry ekranındayken “Nokta Boyutu” menüsünü pasif kıl:
+        # Entry ekranındayken "Nokta Boyutu" menüsünü pasif kıl:
         self.action_point_size.setEnabled(False)
 
 
     def go_main_screen(self):
         """Ana ekrana (3D sahne) dön."""
         self.stack.setCurrentIndex(1)
-        # Ana ekrana geçince, seçili obje durumuna göre “Nokta Boyutu” menüsünü güncelle:
+        # Ana ekrana geçince, seçili obje durumuna göre "Nokta Boyutu" menüsünü güncelle:
         self._update_point_size_menu()
 
 
@@ -504,15 +538,15 @@ class MainWindow(QMainWindow):
          - mesh_index == -1 → hiçbir mesh seçili değil
          - mesh_index >= 0  → self.cube_widget.meshes[mesh_index] geçerli bir mesh
 
-        Bu metotta “seçili mesh bir nokta bulutu mu?” kontrolü yapıp
-        “Ayarlar → Nokta Boyutu…” menüsünü aktif/pasif yapıyoruz.
+        Bu metotta "seçili mesh bir nokta bulutu mu?" kontrolü yapıp
+        "Ayarlar → Nokta Boyutu" menüsünü aktif/pasif yapıyoruz.
         """
         # 1) Eğer index geçersizse, menüyü pasif yap ve çık
         if mesh_index < 0 or mesh_index >= len(self.cube_widget.meshes):
             self.action_point_size.setEnabled(False)
             return
 
-        # 2) Geçerli bir index varsa, mesh’i al ve draw_mode’ına bak
+        # 2) Geçerli bir index varsa, mesh'i al ve draw_mode'ına bak
         mesh = self.cube_widget.meshes[mesh_index]
         if mesh.draw_mode == GL_POINTS:
             # Seçili obje bir nokta bulutuysa menüyü aktif et
