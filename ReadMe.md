@@ -4,17 +4,17 @@ Bu depodaki kodlar, tıbbi görüntü yığınlarından (PNG dilimleri) veya mev
 
 ## İÇİNDEKİLER
 
-1. [Özellikler](#1-özellikler)
+1. [Özellikler](#1-ozellikler)
 2. [Sistem Gereksinimleri](#2-sistem-gereksinimleri)
-3. [Gerekli Python Kütüphaneleri](#3-gerekli-python-kütüphaneleri)
-4. [Hızlı Kurulum Adımları](#4-hızlı-kurulum-adımları)
-5. [Uygulamayı Çalıştırma](#5-uygulamayı-çalıştırma)
-6. [Detaylı Kullanım Kılavuzu](#6-detaylı-kullanım-kılavuzu)
-7. [Proje Dizini ve Önemli Modüller](#7-proje-dizini-ve-önemli-modüller)
-8. [Büyük Hacim & GPU İpuçları](#8-büyük-hacim--gpu-ipuçları)
-9. [Sık Karşılaşılan Sorunlar](#9-sık-karşılaşılan-sorunlar)
+3. [Gerekli Python Kütüphaneleri](#3-gerekli-python-kutuphaneleri)
+4. [Hızlı Kurulum Adımları](#4-hizli-kurulum-adimlari)
+5. [Uygulamayı Çalıştırma](#5-uygulamayi-calistirma)
+6. [Detaylı Kullanım Kılavuzu](#6-detayli-kullanim-kilavuzu)
+7. [Proje Dizini ve Önemli Modüller](#7-proje-dizini-ve-onemli-moduller)
+8. [Büyük Hacim & GPU İpuçları](#8-buyuk-hacim--gpu-ipuclari)
+9. [Sık Karşılaşılan Sorunlar](#9-sik-karsilasilan-sorunlar)
 
-# 1. ÖZELLİKLER
+## 1. OZELLIKLER
 
 ### Dilimsiz (slice) → Mesh/Nokta Bulutu Dönüşümü
 - Tek seferde yüzlerce PNG dilimini okuyup marching-cubes algoritmasıyla renkli yüzey (mesh) oluşturur veya seyreltilmiş nokta bulutu üretir.
@@ -34,7 +34,7 @@ Bu depodaki kodlar, tıbbi görüntü yığınlarından (PNG dilimleri) veya mev
 - Inspector paneli: Seçili objenin konum / rotasyon / ölçek değerlerini canlı düzenleyin, üçgen & nokta sayısını görün.
 - Undo / Redo (Hızlı Tekrar Butonlu), proje kaydet/aç, tema (light/dark) vb.
 
-# 2. SİSTEM GEREKSİNİMLERİ
+## 2. SISTEM GEREKSINIMLERI
 
 - **İşletim Sistemi:** Windows 10/11, macOS 12+, Linux (glibc ≥ 2.31)
 - **Python:** 3.9 – 3.12 (CPython x64)
@@ -42,7 +42,7 @@ Bu depodaki kodlar, tıbbi görüntü yığınlarından (PNG dilimleri) veya mev
 - **RAM:** Dilim boyutuna göre 8 GB+ önerilir (≥ 256×256×512 hacim ≈ 32 M voxel)
 - **(İsteğe Bağlı)** CUDA 11+ için NVIDIA sürücüsü – torch & torchmcubes hızlandırma
 
-# 3. GEREKLİ PYTHON KÜTÜPHANELERİ
+## 3. GEREKLI PYTHON KUTUPHANELERI
 
 Standart bir requirements.txt (basic, GPU'suz) içeriği:
 
@@ -67,7 +67,7 @@ torchmcubes>=0.1.1
 - Linux'ta Qt5 dev paketleri (örn. qtbase5-dev) gerekebilir.
 - Numba Windows'ta "Build Tools for Visual C++ 14" ister.
 
-# 4. HIZLI KURULUM ADIMLARI
+## 4. HIZLI KURULUM ADIMLARI
 
 ```bash
 # 1) Repoyu klonla
@@ -87,7 +87,7 @@ pip install torch torchmcubes
 python main.py
 ```
 
-# 5. UYGULAMAYI ÇALIŞTIRMA
+## 5. UYGULAMAYI CALISTIRMA
 
 ```bash
 (venv) python main.py
@@ -95,7 +95,7 @@ python main.py
 
 İlk çalıştırmada "3D Studio" ana penceresi Giriş Ekranı ile açılır.
 
-# 6. DETAYLI KULLANIM KILAVUZU
+## 6. DETAYLI KULLANIM KILAVUZU
 
 ### 6.1 Giriş Ekranı
 - **OBJ Yükle** → dosyayı seç, sahneye eklenir; materyal renkleri korunur.
@@ -126,7 +126,7 @@ python main.py
 - **Dosya** → Yeni / Oluştur / Aç / Kaydet / Kapat
 - **Ayarlar** → Tema, Eksen Göster, Grid, Nokta Boyutu, GPU vb.
 
-# 7. PROJE DİZİNİ & ÖNEMLİ MODÜLLER
+## 7. PROJE DIZINI VE ONEMLI MODULLER
 
 ```
 main.py                 – QApplication başlangıcı
@@ -142,13 +142,13 @@ shader_utils.py         – GLSL yardımcıları
 ...
 ```
 
-# 8. BÜYÜK HACİM & GPU İPUÇLARI
+## 8. BUYUK HACIM & GPU IPUCLARI
 
 - 32 M+ voxel hacimlerde stream_extract_surface RAM'i düşürür.
 - NVIDIA GPU + torchmcubes → marching-cubes 10–20× hızlanır.
 - Nokta bulutu silgi/clip işlemleri CPU'da, numba JIT ile.
 
-# 9. SIK KARŞILAŞILAN SORUNLAR
+## 9. SIK KARSILASILAN SORUNLAR
 
 - **QOpenGLWidget siyah geliyor** → GPU OpenGL 2.1 desteklemiyor / sürücü eski.
 - **ImportError: DLL load failed: libGL** → Windows'ta mesa-opengl eksik;  
