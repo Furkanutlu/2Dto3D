@@ -1,7 +1,7 @@
 from __future__ import annotations
 """
-Inspector panel — editable transform with spin‑boxes and "–" placeholder.
-Her değer değişikliğinde **Cube3DWidget.save_state()** çağırarak Undo/Redo'ya
+Inspector panel — editable transform with spin‑boxes and “–” placeholder.
+Her değer değişikliğinde **Cube3DWidget.save_state()** çağırarak Undo/Redo’ya
 kaydedilir.
 """
 
@@ -22,7 +22,7 @@ __all__ = ["InspectorPanel"]
 _DEG2RAD = np.pi / 180.0
 _RAD2DEG = 180.0 / np.pi
 _INF     = 16777215
-_BLANK   = -1e12   # sentinel value shown as "–"
+_BLANK   = -1e12   # sentinel value shown as “–”
 
 
 class InspectorPanel(QWidget):
@@ -40,7 +40,6 @@ class InspectorPanel(QWidget):
         self.setFixedWidth(180)
         self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
         self.setStyleSheet("background-color: white;")  # Set white background
-
         root = QVBoxLayout(self);
         root.setContentsMargins(0, 0, 0, 0);
         root.setSpacing(0)
@@ -61,6 +60,9 @@ class InspectorPanel(QWidget):
         # --- Triangle etiketi (YENİ) ----------------------------------
         self.tri_label = QLabel("–")
         form.addRow("Triangle (⊿):", self.tri_label)
+        # --- Point etiketi (YENİ) ----------------------------------
+        self.pt_label = QLabel("–")  # <── EK
+        form.addRow("Point (•):", self.pt_label)  # <── EK
 
         # Helper → spin-box üretir
         def _spin(tag: str, dec: int, step: float) -> QDoubleSpinBox:
@@ -126,7 +128,7 @@ class InspectorPanel(QWidget):
     # Spin‑box callback → apply to mesh & save undo snapshot
     # ------------------------------------------------------------------
     def _value_changed(self, tag: str, sb: QDoubleSpinBox):
-        # Ignore placeholder "–"
+        # Ignore placeholder “–”
         if sb.value() == _BLANK:
             return
 
@@ -183,7 +185,7 @@ class InspectorPanel(QWidget):
         mesh = getattr(self.cube_widget, "selected_mesh", None)
         has_sel = mesh is not None
 
-        # ---------- Spin-box'ların enable durumu ----------------------
+        # ---------- Spin-box’ların enable durumu ----------------------
         for sp in (
                 self.pos_x, self.pos_y, self.pos_z,
                 self.rot_x, self.rot_y, self.rot_z,
@@ -191,9 +193,10 @@ class InspectorPanel(QWidget):
         ):
             sp.setEnabled(has_sel)
 
-        # --------- Seçim yoksa tüm alanlara "–" -----------------------
+        # --------- Seçim yoksa tüm alanlara “–” -----------------------
         if not has_sel:
             self.tri_label.setText("–")  # ⊿ etiketi
+            self.pt_label.setText("–")
             for sp in (
                     self.pos_x, self.pos_y, self.pos_z,
                     self.rot_x, self.rot_y, self.rot_z,
@@ -211,7 +214,14 @@ class InspectorPanel(QWidget):
 
         # Üçgen sayısı = index_count // 3
         tri_cnt = mesh.index_count // 3
-        self.tri_label.setText(f"{tri_cnt:,}")
+
+        pt_cnt = len(mesh.vertices)
+        if  mesh.index_count:
+            self.tri_label.setText(f"{tri_cnt:,}")
+            self.pt_label.setText("–")
+        else:
+            self.tri_label.setText("–")
+            self.pt_label.setText(f"{pt_cnt:,}")
 
         # Pozisyon
         self.pos_x.blockSignals(True);
