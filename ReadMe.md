@@ -37,7 +37,7 @@ Bu depodaki kodlar, tıbbi görüntü yığınlarından (PNG dilimleri) veya mev
 ## 2. SISTEM GEREKSINIMLERI
 
 - **İşletim Sistemi:** Windows 10/11, macOS 12+, Linux (glibc ≥ 2.31)
-- **Python:** 3.9 – 3.12 (CPython x64)
+- **Python:** 3.10 (CPython x64)
 - **Ekran Kartı:** OpenGL 2.1 veya üstü destekleyen GPU (NVIDIA / AMD / Intel)
 - **RAM:** Dilim boyutuna göre 8 GB+ önerilir (≥ 256×256×512 hacim ≈ 32 M voxel)
 - **(İsteğe Bağlı)** CUDA 11+ için NVIDIA sürücüsü – torch & torchmcubes hızlandırma
