@@ -37,7 +37,7 @@ Bu depodaki kodlar, tıbbi görüntü yığınlarından (PNG dilimleri) veya mev
 ## 2. SISTEM GEREKSINIMLERI
 
 - **İşletim Sistemi:** Windows 10/11, macOS 12+, Linux (glibc ≥ 2.31)
-- **Python:** 3.10 (CPython x64)
+- **Python:** 3.10 - 3.13 (CPython x64)
 - **Ekran Kartı:** OpenGL 2.1 veya üstü destekleyen GPU (NVIDIA / AMD / Intel)
 - **RAM:** Dilim boyutuna göre 8 GB+ önerilir (≥ 256×256×512 hacim ≈ 32 M voxel)
 - **(İsteğe Bağlı)** CUDA 11+ için NVIDIA sürücüsü – torch & torchmcubes hızlandırma
@@ -60,6 +60,7 @@ GPU destekli kullanmak isteyenler ek olarak:
 ```txt
 torch>=2.2     (uyumlu CUDA tekeri)
 torchmcubes>=0.1.1
+(pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118 ile indirebilirsiniz)
 ```
 
 **Ek Notlar**
